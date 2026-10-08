@@ -22,6 +22,7 @@ import { DiEntity } from '../../disposisi/entities/di.entity';
 // import { SdiSdeEntity } from '../../surat-dinas-internal/entities/sdi_sde.entity';
 import { StorageService } from '../../storage/services/storage.service';
 import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.service';
+import { RealtimeEmitService } from '../../realtime/services/realtime-emit.service';
 import { GrupPenerimaService } from '../../grup-penerima/services/grup_penerima.service';
 import { NotificationService } from '../../notification/services/notification.service';
 import { CreateNaskahDto } from '../dto/naskah/create_naskah.dto';
@@ -95,6 +96,7 @@ export class NaskahService {
     private meilisearchSyncService: MeilisearchSyncService,
     private grupPenerimaService: GrupPenerimaService,
     private notificationService: NotificationService,
+    private realtimeEmitService: RealtimeEmitService,
     private dataSource: DataSource,
   ) {}
 
@@ -408,6 +410,14 @@ export class NaskahService {
 
       // Sync to Meilisearch (non-blocking)
       this.meilisearchSyncService.syncNaskah(naskahId).catch(() => {});
+
+      // Emit jumlah tertunda baru ke pengirim agar badge sidebar langsung
+      // berubah (berkurang) tanpa refresh.
+      if (pengirim?.position) {
+        this.realtimeEmitService
+          .emitTertundaCountForPosition(this.dataSource, String(pengirim.position))
+          .catch(() => {});
+      }
 
       return {
         success: true,

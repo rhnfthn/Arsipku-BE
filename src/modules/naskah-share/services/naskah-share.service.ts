@@ -26,6 +26,7 @@ import { StorageService } from '../../storage/services/storage.service';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 import { ConfigNaskahLainnyaService } from '../../config/services';
 import { NaskahLainnyaDokumenEntity } from '../../naskah-lainnya/entities/naskah-lainnya-dokumen.entity';
+import { KonsepRiwayatEntity } from '../../konsep/entities/konsep-riwayat.entity';
 import { MailServiceService } from '../../mail-service/services/mail-service.service';
 
 @Injectable()
@@ -45,6 +46,8 @@ export class NaskahShareService {
     private readonly naskahRepo: Repository<NaskahEntity>,
     @InjectRepository(NaskahLainnyaDokumenEntity)
     private readonly naskahLainnyaDokumenRepo: Repository<NaskahLainnyaDokumenEntity>,
+    @InjectRepository(KonsepRiwayatEntity)
+    private readonly konsepRiwayatRepo: Repository<KonsepRiwayatEntity>,
     @InjectRepository(Person)
     private readonly personRepo: Repository<Person>,
     private readonly orgDataService: OrgDataService,
@@ -781,6 +784,17 @@ export class NaskahShareService {
     share.revokedReason = reason || null;
     await this.shareRepo.save(share);
 
+    // Sinkronkan status semua recipient ke BERAKHIR agar konsisten dengan
+    // revoke per-penerima. Tanpa ini, recipient tetap TERKIRIM meskipun
+    // share induk sudah BERAKHIR — menyebabkan display status & filter
+    // berbasis recipient status di FE tidak akurat.
+    for (const recipient of share.recipients) {
+      if (recipient.status !== RecipientStatus.BERAKHIR) {
+        recipient.status = RecipientStatus.BERAKHIR;
+        await this.recipientRepo.save(recipient);
+      }
+    }
+
     // Log audit trail
     await this.logRepo.save(
       this.logRepo.create({
@@ -1124,6 +1138,33 @@ export class NaskahShareService {
    */
   private async resolveFinalPdfKey(naskah: NaskahEntity) {
     if (naskah.final_pdf) return naskah.final_pdf;
+
+    // Naskah asli (ND/SDI/SDE) yang merupakan bagian dari workflow konsep —
+    // final_pdf di naskahAsli baru di-set saat aksi 'finalize'. Sebelum itu,
+    // snapshot PDF tersimpan di konsep_riwayat (id_naskah_konsep = id wrapper
+    // Konsep). Ambil snapshot terbaru agar bisa dibuka/dibagikan sebelum final.
+    if (naskah.id_naskah_konsep) {
+      const riwayat = await this.konsepRiwayatRepo.find({
+        where: { idNaskahKonsep: naskah.id_naskah_konsep },
+        order: { urutan: 'DESC', createdAt: 'DESC' },
+      });
+      for (const row of riwayat) {
+        if (row.pdfSnapshot) return row.pdfSnapshot;
+      }
+    }
+
+    // Konsep (jenis 'K') wrapper — tiap aksi generate snapshot yang disimpan
+    // dengan id_naskah_konsep = id konsep ini.
+    if (String(naskah.jenis || '').toUpperCase() === 'K') {
+      const riwayat = await this.konsepRiwayatRepo.find({
+        where: { idNaskahKonsep: naskah.id },
+        order: { urutan: 'DESC', createdAt: 'DESC' },
+      });
+      for (const row of riwayat) {
+        if (row.pdfSnapshot) return row.pdfSnapshot;
+      }
+    }
+
     if (naskah.tahapan == null) return null;
 
     const documents = await this.naskahLainnyaDokumenRepo.find({
@@ -1161,14 +1202,19 @@ export class NaskahShareService {
   }
 
   private async findNotFinalizedNaskahs(naskahs: NaskahEntity[]) {
-    const legacyCandidates = naskahs.filter(
+    // Konsep (jenis 'K') memang belum final — snapshot PDF di konsep_riwayat
+    // menjadi bukti dokumen tersedia, jadi dikecualikan dari validasi.
+    const candidates = naskahs.filter(
+      (naskah) => String(naskah.jenis || '').toUpperCase() !== 'K',
+    );
+    const legacyCandidates = candidates.filter(
       (naskah) =>
         !['final', 'final_tte'].includes(naskah.status) &&
         naskah.tahapan === 'selesai' &&
         naskah.signOption !== 'ttd_basah',
     );
     if (legacyCandidates.length === 0) {
-      return naskahs.filter(
+      return candidates.filter(
         (naskah) => !['final', 'final_tte'].includes(naskah.status),
       );
     }
@@ -1191,7 +1237,7 @@ export class NaskahShareService {
         .map((document) => document.naskahId),
     );
 
-    return naskahs.filter(
+    return candidates.filter(
       (naskah) =>
         !['final', 'final_tte'].includes(naskah.status) &&
         !finalizedLegacyIds.has(naskah.id),

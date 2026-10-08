@@ -69,6 +69,7 @@ import { MeilisearchSyncService } from '../../search/services/meilisearch-sync.s
 import { NotificationService } from '../../notification/services';
 import { NaskahSirkulasiService } from '../../naskah-sirkulasi/services/naskah_sirkulasi.service';
 import { GrupPenerimaService } from '../../grup-penerima/services/grup_penerima.service';
+import { RealtimeEmitService } from '../../realtime/services/realtime-emit.service';
 import { assertDateNotInFuture } from '../../../common/helpers/date-validation.helper';
 import { updatePartitionedNaskah } from '../../../common/helpers/naskah-partition.helper';
 
@@ -114,6 +115,7 @@ export class NotaDinasService {
     private readonly naskahSirkulasiService: NaskahSirkulasiService,
     private readonly grupPenerimaService: GrupPenerimaService,
     private readonly konsepService: KonsepService,
+    private readonly realtimeEmitService: RealtimeEmitService,
   ) {}
 
   // ============================================================
@@ -2659,6 +2661,14 @@ export class NotaDinasService {
 
       // Sync to Meilisearch (non-blocking, after successful commit)
       this.meilisearchSyncService.syncNaskah(naskahId).catch(() => {});
+
+      // Naskah TTD basah masuk daftar tertunda — emit badge count baru ke
+      // pengirim agar sidebar langsung update tanpa refresh.
+      if (status === 'pending' && pengirim?.position) {
+        this.realtimeEmitService
+          .emitTertundaCountForPosition(this.dataSource, String(pengirim.position))
+          .catch(() => {});
+      }
 
       // Build response - match SDI format
       const lampiranTextResponse =
