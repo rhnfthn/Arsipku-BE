@@ -31,8 +31,14 @@ export class GeneratePdfService implements OnModuleInit {
    * Jalur ini dipakai oleh dokumen khusus seperti BAC. Method generatePdf()
    * di atas sengaja tidak diubah karena dipakai oleh generator Nota Dinas.
    */
-  async generateRawPdf(html: string): Promise<Buffer> {
-    const result = await pdfQueue.add(() => this._renderHtmlToPdf(html), {
+  async generateRawPdf(
+    html: string,
+    options: {
+      landscape?: boolean;
+      margin?: { top?: string; right?: string; bottom?: string; left?: string };
+    } = {},
+  ): Promise<Buffer> {
+    const result = await pdfQueue.add(() => this._renderHtmlToPdf(html, options), {
       timeout: 90000,
     });
 
@@ -318,7 +324,13 @@ export class GeneratePdfService implements OnModuleInit {
     return this._renderHtmlToPdf(finalKonten);
   }
 
-  private async _renderHtmlToPdf(finalKonten: string): Promise<Buffer> {
+  private async _renderHtmlToPdf(
+    finalKonten: string,
+    options: {
+      landscape?: boolean;
+      margin?: { top?: string; right?: string; bottom?: string; left?: string };
+    } = {},
+  ): Promise<Buffer> {
     const browser = await getBrowser();
     const page = await browser.newPage();
     try {
@@ -344,13 +356,14 @@ export class GeneratePdfService implements OnModuleInit {
 
       const pdf = await page.pdf({
         format: 'A4',
+        landscape: options.landscape ?? false,
         printBackground: true,
         timeout: 60000,
         margin: {
-          top: '10mm',
-          bottom: '15mm',
-          left: '15mm',
-          right: '15mm',
+          top: options.margin?.top ?? '10mm',
+          bottom: options.margin?.bottom ?? '15mm',
+          left: options.margin?.left ?? '15mm',
+          right: options.margin?.right ?? '15mm',
         },
       });
 

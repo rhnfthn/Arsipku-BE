@@ -1127,10 +1127,17 @@ export class TuVerifikasiService {
   async findAllPenataan(filter: TuFilterDto) {
     const page = Math.max(1, filter.page ?? 1);
     const limit = Math.max(1, filter.limit ?? 10);
+    const statusFilter = String(filter.status ?? '').toUpperCase();
+    const effectiveStatusFilters = [
+      'DITERIMA',
+      'MENUNGGU_RETENSI_INAKTIF',
+      'SIAP_PENYUSUTAN',
+    ];
+    const hasEffectiveStatusFilter = effectiveStatusFilters.includes(statusFilter);
 
     const qb = this.transferRepo.createQueryBuilder('t');
 
-    if (filter.status) {
+    if (filter.status && !hasEffectiveStatusFilter) {
       qb.andWhere('t.status = :status', { status: filter.status });
     } else {
       qb.andWhere('t.status IN (:...statuses)', {
@@ -1140,11 +1147,18 @@ export class TuVerifikasiService {
 
     qb.orderBy('t.received_at', 'DESC').addOrderBy('t.created_at', 'DESC');
 
-    // Klasifikasi & status tidak selalu ada di tabel transfer, jadi jika ada
-    // search/klasifikasi filter, ambil semua dulu lalu post-filter manual.
+    // Klasifikasi dan nasib efektif berasal dari metadata berkas,
+    // bukan kolom transfer; filter tersebut diterapkan setelah metadata dimuat.
     const hasSearch = !!filter.search;
     const hasKlasifikasiFilter = !!filter.klasifikasi;
-    if (!hasSearch && !hasKlasifikasiFilter) {
+    const nasibFilter = String(filter.nasibAkhir ?? '').trim().toUpperCase();
+    const hasNasibFilter = ['PERMANEN', 'MUSNAH'].includes(nasibFilter);
+    const hasPostFilter =
+      hasSearch ||
+      hasKlasifikasiFilter ||
+      hasNasibFilter ||
+      hasEffectiveStatusFilter;
+    if (!hasPostFilter) {
       qb.skip((page - 1) * limit).take(limit);
     }
 
@@ -1200,8 +1214,59 @@ export class TuVerifikasiService {
       total = data.length;
     }
 
-    // Paginate manual jika ada post-filter
-    if (hasSearch || hasKlasifikasiFilter) {
+    if (hasEffectiveStatusFilter || hasNasibFilter) {
+      const todayJakarta = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Jakarta',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(new Date());
+      const hasExpired = (value: unknown) => {
+        if (!value) return false;
+        const date = String(value).slice(0, 10);
+        return /^\d{4}-\d{2}-\d{2}$/.test(date) && date <= todayJakarta;
+      };
+      data = data.flatMap((item: any) => {
+        if (statusFilter === 'DITERIMA' && item.status === 'SELESAI') {
+          return [];
+        }
+        if (
+          ['MENUNGGU_RETENSI_INAKTIF', 'SIAP_PENYUSUTAN'].includes(
+            statusFilter,
+          ) &&
+          item.status !== 'SELESAI'
+        ) {
+          return [];
+        }
+
+        const matchingRows = (item.arsipRows ?? []).filter((archive: any) => {
+          const expired = hasExpired(archive.tanggalRetensiInaktifBerakhir);
+          if (
+            statusFilter === 'MENUNGGU_RETENSI_INAKTIF' &&
+            expired
+          ) {
+            return false;
+          }
+          if (statusFilter === 'SIAP_PENYUSUTAN' && !expired) {
+            return false;
+          }
+
+          if (
+            hasNasibFilter &&
+            String(archive.nasibAkhir ?? '').trim().toUpperCase() !== nasibFilter
+          ) {
+            return false;
+          }
+          return true;
+        });
+
+        return matchingRows.length ? [{ ...item, arsipRows: matchingRows }] : [];
+      });
+      total = data.length;
+    }
+
+    // Paginate manual jika ada filter pasca-query.
+    if (hasPostFilter) {
       const start = (page - 1) * limit;
       data = data.slice(start, start + limit);
     }
@@ -1264,21 +1329,20 @@ export class TuVerifikasiService {
       [...ids],
     );
     const byId = new Map(metadataRows.map((row) => [String(row.id), row]));
-    const year = (value: unknown): string => {
-      if (!value) return '';
-      const match = String(value).match(/\d{4}/);
-      return match?.[0] ?? '';
+    const formatArchiveCreationDate = (value: unknown): string => {
+      if (!value) return '-';
+      if (value instanceof Date && !Number.isNaN(value.getTime())) {
+        return `${String(value.getDate()).padStart(2, '0')}/${String(value.getMonth() + 1).padStart(2, '0')}/${value.getFullYear()}`;
+      }
+      const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+      return match ? `${match[3]}/${match[2]}/${match[1]}` : String(value);
     };
 
     for (const item of items) {
       const refs = refsByTransfer.get(item.id) ?? [];
       (item as any).arsipRows = refs.map((ref, index) => {
         const berkas = byId.get(String(ref.id));
-        const yearStart = year(berkas?.tanggalDibuat);
-        const yearEnd = year(berkas?.tanggalDitutup);
-        const kurunWaktu = yearStart && yearEnd && yearStart !== yearEnd
-          ? `${yearStart} - ${yearEnd}`
-          : yearStart || yearEnd || '-';
+        const kurunWaktu = formatArchiveCreationDate(berkas?.tanggalDibuat);
         const retensi = berkas?.retensiInaktifTahun ?? berkas?.retensiInaktifMaster;
         const tingkatPerkembangan = String(item.keteranganPenataan ?? '')
           .match(/(?:^|\n)Tingkat Perkembangan: ([^\n]*)/)?.[1];
