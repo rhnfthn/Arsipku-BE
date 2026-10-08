@@ -1,3 +1,10 @@
+import {
+  applyNomorListQuery,
+  buildNomorStatusCounts,
+  approvalStatusSql,
+  requestStatusSql,
+  manualRequestSql,
+} from '../helpers/nomor-list-query';
 import { formatNomorLocation } from '../../../common/helpers/nomor-location.helper';
 import {
   Injectable,
@@ -7,7 +14,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, IsNull, EntityManager } from 'typeorm';
+import { Repository, DataSource, IsNull, EntityManager, In } from 'typeorm';
 import { NomorEntity } from '../entities/nomor.entity';
 import { NomorRequestEntity } from '../entities/nomor-request.entity';
 import { NomorRequestDetailEntity } from '../entities/nomor-request-detail.entity';
@@ -57,9 +64,6 @@ import { NotificationType } from '../../notification/entities';
 export class NomorService {
   private readonly logger = new Logger(NomorService.name);
 
-  // Cache untuk position JSON data (per-request lifecycle)
-  private cachedPositionJsonData: any[] | null = null;
-
   constructor(
     @InjectRepository(NomorEntity)
     private readonly nomorRepository: Repository<NomorEntity>,
@@ -84,27 +88,19 @@ export class NomorService {
    * Helper: Get latest position JSON data dengan caching.
    * Memanfaatkan cache 5 menit di OrgDataService.findLatestOrg().
    */
-  private async getLatestPositionJsonData(
-    forceRefresh = false,
-  ): Promise<any[]> {
-    if (!forceRefresh && this.cachedPositionJsonData !== null) {
-      return this.cachedPositionJsonData;
-    }
-
+  private async getLatestPositionJsonData(): Promise<any[]> {
     try {
       const latestOrgData = await this.orgDataService.findLatestOrg();
       if (
         latestOrgData?.position_json &&
         Array.isArray(latestOrgData.position_json)
       ) {
-        this.cachedPositionJsonData = latestOrgData.position_json;
-        return this.cachedPositionJsonData;
+        return latestOrgData.position_json;
       }
     } catch (error) {
       console.log('Could not fetch position data from org_data');
     }
 
-    this.cachedPositionJsonData = [];
     return [];
   }
 
@@ -647,215 +643,186 @@ export class NomorService {
   }
 
   /**
-   * User melihat usulan nomor berdasarkan position_id
-   * OPTIMIZED: Menggunakan LEFT JOIN untuk load details bersamaan
+   * Page parent requests first, then fetch details only for that page.
    */
+  private async loadNomorListPage(
+    query: GetNomorQueryDto | undefined,
+    options: {
+      mode: 'usulan' | 'admin-usulan' | 'submitted' | 'approval' | 'nomor';
+      position?: number;
+      area?: string;
+      adminPositions?: string[];
+      draftPosition?: number;
+    },
+    positions: any[] = [],
+  ) {
+    const page = Math.max(1, query?.page || 1);
+    const limit = Math.min(100, Math.max(1, query?.limit || 10));
+    const search = query?.search?.toLowerCase();
+    const matchingPositions = search
+      ? positions
+          .filter((position) =>
+            [position.persnum_person_text, position.persnum_person].some(
+              (value) =>
+                value != null && String(value).toLowerCase().includes(search),
+            ),
+          )
+          .map((position) => String(position.position))
+      : [];
+    const qb = this.nomorRequestRepository.createQueryBuilder('request');
+    applyNomorListQuery(qb, query, { ...options, matchingPositions });
+    let counts: Record<string, number> | undefined;
+    if (options.mode === 'approval') {
+      const countQuery =
+        this.nomorRequestRepository.createQueryBuilder('request');
+      applyNomorListQuery(
+        countQuery,
+        { ...query, status: undefined },
+        { ...options, matchingPositions },
+      );
+      const totals = await buildNomorStatusCounts(
+        countQuery,
+        approvalStatusSql,
+      ).getRawMany<{ status: string; total: string }>();
+      counts = { all: 0, draft: 0, approved: 0, rejected: 0 };
+      for (const row of totals) {
+        counts[row.status] = Number(row.total);
+        counts.all += Number(row.total);
+      }
+    }
+    const total = await qb.clone().getCount();
+    const requests = await qb
+      .offset((page - 1) * limit)
+      .limit(limit)
+      .getMany();
+    if (requests.length) {
+      const details = await this.nomorRequestDetailRepository.find({
+        where: { idRequest: In(requests.map((request) => request.id)) },
+        ...(options.mode === 'submitted' ||
+        options.mode === 'nomor' ||
+        options.mode === 'admin-usulan'
+          ? {
+              select: {
+                id: true,
+                idRequest: true,
+                nomor: true,
+                status: true,
+                createdAt: true,
+              },
+            }
+          : {}),
+        order: { createdAt: 'ASC', id: 'ASC' },
+      });
+      const byRequest = new Map<string, NomorRequestDetailEntity[]>();
+      for (const detail of details) {
+        const list = byRequest.get(detail.idRequest!) || [];
+        list.push(detail);
+        byRequest.set(detail.idRequest!, list);
+      }
+      requests.forEach((request) => {
+        request.details = byRequest.get(request.id) || [];
+      });
+    }
+    return {
+      requests,
+      counts,
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    };
+  }
+
+  private async listTemplateContext(requests: NomorRequestEntity[]) {
+    const codes = [
+      ...new Set(
+        requests
+          .map((request) => request.jenis)
+          .filter((code): code is string => Boolean(code)),
+      ),
+    ];
+    const jenis = codes.length
+      ? await this.jenisRepository.find({ where: { jenis: In(codes) } })
+      : [];
+    return {
+      jenis: new Map(jenis.map((item) => [item.jenis!, item])),
+      org: new Map<string, Promise<any>>(),
+    };
+  }
+
   async getNomorRequestByPosition(
     positionId: number,
     query?: GetNomorQueryDto,
   ): Promise<GetMyNomorRequestResponseDto> {
-    const normalizedStatus = this.normalizeStatusFilter(query?.status);
-
-    // Optimized: Load requests dengan details dalam 1 query
-    const requests = await this.nomorRequestRepository.find({
-      where: { position: positionId.toString() },
-      relations: ['details'],
-      order: { createdAt: 'DESC' },
+    const { requests, pagination } = await this.loadNomorListPage(query, {
+      mode: 'usulan',
+      position: positionId,
     });
-
-    // Pre-cache jenis data untuk generateNomorTemplate
-    const jenisCache = new Map<string, any>();
-    const uniqueJenis = [
-      ...new Set(
-        requests
-          .map((r) => r.jenis)
-          .filter((j): j is string => j !== null && j !== undefined),
-      ),
-    ];
-    if (uniqueJenis.length > 0) {
-      const jenisDataList = await this.jenisRepository.find({
-        where: uniqueJenis.map((j) => ({ jenis: j })),
-      });
-      jenisDataList.forEach((j) => jenisCache.set(j.jenis!, j));
-    }
-
-    // Generate data tanpa N+1 query
+    const context = await this.listTemplateContext(requests);
     const data = await Promise.all(
-      requests.map(async (request) => {
-        const details = request.details || [];
-        // Sort details by createdAt ASC
-        details.sort(
-          (a, b) =>
-            new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-        );
-
-        // Generate template nomor (menggunakan cache)
-        const templateNomor = await this.generateNomorTemplate(request);
-
-        return {
-          id: request.id,
-          company: request.company!,
-          area: request.area!,
-          sub_area: request.subArea!,
-          organization: request.organization!,
-          position: request.position!,
-          tanggal: request.tanggal!,
-          jenis: request.jenis!,
-          klasifikasi: request.klasifikasi,
-          perihal: request.perihal!,
-          jumlah: request.jumlah!,
-          penandatangan: request.penandatangan,
-          is_single_file: request.isSingleFile,
-          template_nomor: templateNomor,
-          created_at: request.createdAt,
-          details: await Promise.all(
-            details.map(async (detail) => ({
-              id: detail.id,
-              nomor: detail.nomor,
-              status: detail.status,
-              file_name: detail.fileName,
-              file_url: await this.getDetailFileUrlAndHeal(detail, 'nomor'),
-              created_at: detail.createdAt,
-            })),
-          ),
-        };
-      }),
-    );
-
-    // Apply search filter
-    let filteredData = data;
-    if (query?.search) {
-      const searchLower = query.search.toLowerCase();
-      filteredData = data.filter((item) => {
-        const perihalMatch =
-          item.perihal && item.perihal.toLowerCase().includes(searchLower);
-        const jenisMatch =
-          item.jenis && item.jenis.toLowerCase().includes(searchLower);
-        const penandatanganMatch =
-          item.penandatangan &&
-          item.penandatangan.toLowerCase().includes(searchLower);
-        return perihalMatch || jenisMatch || penandatanganMatch;
-      });
-    }
-
-    // Apply status filter menggunakan helper
-    if (normalizedStatus && normalizedStatus !== 'Semua') {
-      filteredData = filteredData.filter((item) => {
-        const details = item.details || [];
-        // Convert to entity-like format for helper
-        const detailsForHelper = details.map(
-          (d) => ({ status: d.status }) as NomorRequestDetailEntity,
-        );
-        const status = this.determineStatusFromDetails(detailsForHelper);
-        return status === normalizedStatus;
-      });
-    }
-
-    // Apply sorting
-    if (query?.sort_by) {
-      const sortOrder = query.sort_order?.toLowerCase() === 'asc' ? 1 : -1;
-      filteredData.sort((a, b) => {
-        let aValue: any;
-        let bValue: any;
-
-        if (query.sort_by === 'tanggal') {
-          aValue = new Date(a.tanggal).getTime();
-          bValue = new Date(b.tanggal).getTime();
-        } else if (
-          query.sort_by === 'tanggal_usulan' ||
-          query.sort_by === 'waktu'
-        ) {
-          aValue = new Date(a.created_at).getTime();
-          bValue = new Date(b.created_at).getTime();
-        } else {
-          return 0;
-        }
-
-        return (aValue - bValue) * sortOrder;
-      });
-    }
-
-    // Apply pagination
-    let paginatedData = filteredData;
-    const result: any = {
-      success: true,
-      message: 'Data usulan nomor berhasil diambil',
-      data: filteredData,
-    };
-
-    if (query?.page || query?.limit) {
-      const page = query.page || 1;
-      const limit = query.limit || 10;
-      const total = filteredData.length;
-      const totalPages = Math.ceil(total / limit);
-      const skip = (page - 1) * limit;
-      paginatedData = filteredData.slice(skip, skip + limit);
-      result.data = paginatedData;
-      result.pagination = { page, limit, total, totalPages };
-    }
-
-    return result;
-  }
-
-  /**
-   * Admin melihat semua usulan nomor yang sudah diajukan (status != 'Belum Diajukan')
-   * Hanya menampilkan data dari usulan manual (is_naskah_generated != true)
-   * OPTIMIZED: Menggunakan LEFT JOIN dan caching
-   */
-  async getAdminNomorRequestSubmitted(
-    query?: GetNomorQueryDto,
-    user?: JwtPayload,
-  ): Promise<GetAdminNomorRequestResponseDto> {
-    const scopedAreaCode = this.getScopedAreaCode(user as JwtPayload);
-    const normalizedStatus = this.normalizeStatusFilter(query?.status);
-
-    // Optimized: Load requests dengan details dalam 1 query
-    const requests = await this.nomorRequestRepository.find({
-      relations: ['details'],
-      order: { createdAt: 'DESC' },
-    });
-
-    // Optimized: Gunakan cached position data
-    const positionJsonData = await this.getLatestPositionJsonData();
-
-    // Process data tanpa N+1 query
-    const data = requests.map((request) => {
-      const details = request.details || [];
-
-      if (scopedAreaCode) {
-        const requestAreaCode = String(request.area || '')
-          .trim()
-          .toUpperCase();
-        if (requestAreaCode !== scopedAreaCode) {
-          return null;
-        }
-      }
-
-      // Skip jika request di-generate dari modul naskah
-      if (this.isNaskahGeneratedRequest(request, details)) {
-        return null;
-      }
-
-      const status = this.determineStatusFromDetails(details);
-
-      // Get position data
-      const positionNumber = parseInt(request.position!, 10);
-      const positionData = positionJsonData.find(
-        (p: any) => p.position === positionNumber,
-      );
-
-      const persnum = positionData?.persnum_person || null;
-      const nama = positionData?.persnum_person_text || null;
-
-      const responseItem = {
+      requests.map(async (request) => ({
         id: request.id,
         company: request.company!,
         area: request.area!,
         sub_area: request.subArea!,
         organization: request.organization!,
         position: request.position!,
-        persnum,
-        nama,
+        tanggal: request.tanggal!,
+        jenis: request.jenis!,
+        klasifikasi: request.klasifikasi,
+        perihal: request.perihal!,
+        jumlah: request.jumlah!,
+        penandatangan: request.penandatangan,
+        is_single_file: request.isSingleFile,
+        status: this.determineStatusFromDetails(request.details || []),
+        template_nomor: await this.generateNomorTemplate(request, context),
+        created_at: request.createdAt,
+        details: await Promise.all(
+          (request.details || []).map(async (detail) => ({
+            id: detail.id,
+            nomor: detail.nomor,
+            status: detail.status,
+            file_name: detail.fileName,
+            file_url: await this.getDetailFileUrlAndHeal(detail, 'nomor'),
+            created_at: detail.createdAt,
+          })),
+        ),
+      })),
+    );
+    return {
+      success: true,
+      message: 'Data usulan nomor berhasil diambil',
+      data,
+      pagination,
+    };
+  }
+
+  /**
+   * Admin melihat semua usulan nomor yang sudah diajukan (status != 'Belum Diajukan')
+   * Hanya menampilkan data dari usulan manual (is_naskah_generated != true)
+   */
+  async getAdminNomorRequestSubmitted(
+    query?: GetNomorQueryDto,
+    user?: JwtPayload,
+  ): Promise<GetAdminNomorRequestResponseDto> {
+    const area = this.getScopedAreaCode(user as JwtPayload);
+    const positions = await this.getLatestPositionJsonData();
+    const byPosition = new Map(
+      positions.map((position) => [Number(position.position), position]),
+    );
+    const { requests, pagination } = await this.loadNomorListPage(
+      query,
+      { mode: 'submitted', area },
+      positions,
+    );
+    const data = requests.map((request) => {
+      const position = byPosition.get(Number(request.position));
+      return {
+        id: request.id,
+        company: request.company!,
+        area: request.area!,
+        sub_area: request.subArea!,
+        organization: request.organization!,
+        position: request.position!,
+        persnum: position?.persnum_person || null,
+        nama: position?.persnum_person_text || null,
         tanggal: request.tanggal!,
         jenis: request.jenis!,
         klasifikasi: request.klasifikasi,
@@ -863,107 +830,14 @@ export class NomorService {
         jumlah: request.jumlah!,
         penandatangan: request.penandatangan,
         created_at: request.createdAt,
-        status,
+        status: this.determineStatusFromDetails(request.details || []),
       };
-
-      // Apply search filter across all fields
-      if (query?.search) {
-        const searchLower = query.search.toLowerCase();
-        const searchFields = [
-          responseItem.id?.toString(),
-          responseItem.company,
-          responseItem.area,
-          responseItem.sub_area,
-          responseItem.organization,
-          responseItem.position,
-          responseItem.persnum?.toString(),
-          responseItem.nama,
-          responseItem.tanggal,
-          responseItem.jenis,
-          responseItem.klasifikasi,
-          responseItem.perihal,
-          responseItem.jumlah?.toString(),
-          responseItem.penandatangan,
-          responseItem.status,
-        ];
-
-        const isMatch = searchFields.some(
-          (field) => field && field.toLowerCase().includes(searchLower),
-        );
-
-        if (!isMatch) {
-          return null;
-        }
-      }
-
-      // Apply status filter
-      if (
-        normalizedStatus &&
-        normalizedStatus !== 'Semua' &&
-        status !== normalizedStatus
-      ) {
-        return null;
-      }
-
-      return responseItem;
     });
-
-    // Filter out null values and 'Belum Diajukan'
-    const submittedData = data.filter(
-      (item): item is Exclude<typeof item, null> =>
-        item !== null && item.status !== 'Belum Diajukan',
-    );
-
-    // Apply sorting
-    if (query?.sort_by) {
-      const sortOrder = query.sort_order?.toLowerCase() === 'asc' ? 1 : -1;
-      submittedData.sort((a, b) => {
-        let aValue: any;
-        let bValue: any;
-
-        if (query.sort_by === 'tanggal') {
-          aValue = new Date(a.tanggal).getTime();
-          bValue = new Date(b.tanggal).getTime();
-        } else if (
-          query.sort_by === 'tanggal_usulan' ||
-          query.sort_by === 'waktu'
-        ) {
-          aValue = new Date(a.created_at).getTime();
-          bValue = new Date(b.created_at).getTime();
-        } else if (query.sort_by === 'jenis') {
-          aValue = (a.jenis || '').toLowerCase();
-          bValue = (b.jenis || '').toLowerCase();
-          return aValue.localeCompare(bValue) * sortOrder;
-        } else if (query.sort_by === 'status') {
-          aValue = (a.status || '').toLowerCase();
-          bValue = (b.status || '').toLowerCase();
-          return aValue.localeCompare(bValue) * sortOrder;
-        } else {
-          return 0;
-        }
-
-        return (aValue - bValue) * sortOrder;
-      });
-    }
-
-    // Apply pagination
-    const page = query?.page || 1;
-    const limit = query?.limit || 10;
-    const total = submittedData.length;
-    const totalPages = Math.ceil(total / limit);
-    const skip = (page - 1) * limit;
-    const paginatedData = submittedData.slice(skip, skip + limit);
-
     return {
       success: true,
       message: 'Data usulan nomor yang diajukan berhasil diambil',
-      data: paginatedData,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages,
-      },
+      data,
+      pagination,
     };
   }
 
@@ -972,225 +846,116 @@ export class NomorService {
    * - Semua data dengan status selain "Belum Diajukan" di-count
    * - Data dengan status "Belum Diajukan" hanya yang dibuat oleh posisi tertentu
    * Hanya count data dari usulan manual (is_naskah_generated != true)
-   * OPTIMIZED: Menggunakan LEFT JOIN
    */
-  async getAdminCountNomorRequest(
-    positionId: number,
-    user?: JwtPayload,
-  ): Promise<any> {
-    const scopedAreaCode = this.getScopedAreaCode(user as JwtPayload);
-
-    // Load requests, role admin data, dan position mapping in parallel
-    const [requests, penandatanganRequests, adminRoles, positionJsonData] =
-      await Promise.all([
-        this.nomorRequestRepository.find({
-          relations: ['details'],
-        }),
-        this.nomorRequestRepository.find({
-          where: { idPositionPenandatangan: positionId },
-          relations: ['details'],
-        }),
+  private async nomorCountSummary(positionId: number, user?: JwtPayload) {
+    const area = user ? this.getScopedAreaCode(user) : undefined;
+    let adminPositions: string[] = [];
+    if (user) {
+      const [positions, roles] = await Promise.all([
+        this.getLatestPositionJsonData(),
         this.userRoleRepository.find({
           where: [{ role: UserRole.ADMIN }, { role: UserRole.SUPERADMIN }],
           select: ['persnum'],
         }),
-        this.getLatestPositionJsonData(),
       ]);
-
-    const adminPersnumSet = new Set(adminRoles.map((r) => Number(r.persnum)));
-
-    // Build position lookup Map sekali (no .find() per request — O(1) lookup)
-    const positionLookupMap = new Map<number, any>();
-    for (const p of positionJsonData) {
-      if (p?.position != null) positionLookupMap.set(Number(p.position), p);
+      const admins = new Set(roles.map((role) => Number(role.persnum)));
+      adminPositions = positions
+        .filter((position) => admins.has(Number(position.persnum_person)))
+        .map((position) => String(position.position));
     }
-
-    const isProposedByAdmin = (request: NomorRequestEntity): boolean => {
-      const positionNumber = parseInt(request.position || '0', 10);
-      if (!positionNumber) return false;
-
-      const positionData = positionLookupMap.get(positionNumber);
-      const persnum = positionData?.persnum_person;
-      if (!persnum) return false;
-
-      return adminPersnumSet.has(Number(persnum));
-    };
-
-    // Count by status
-    const statusCounts = {
+    const group = this.nomorRequestRepository
+      .createQueryBuilder('request')
+      .where(manualRequestSql);
+    const signer = this.nomorRequestRepository
+      .createQueryBuilder('request')
+      .where(manualRequestSql)
+      .andWhere('request.id_position_penandatangan = :position', {
+        position: positionId,
+      })
+      .andWhere(`(${requestStatusSql}) = 'Draft'`);
+    if (user) {
+      if (area) {
+        group.andWhere('request.area = :area', { area });
+        signer.andWhere('request.area = :area', { area });
+      }
+      group.andWhere(
+        `((${requestStatusSql}) <> 'Belum Diajukan' OR request.position = :position)`,
+        { position: String(positionId) },
+      );
+      if (adminPositions.length) {
+        group.andWhere(
+          `((${requestStatusSql}) <> 'Draft' OR request.position IN (:...adminPositions))`,
+          { adminPositions },
+        );
+        signer.andWhere('request.position IN (:...adminPositions)', {
+          adminPositions,
+        });
+      } else {
+        group.andWhere(`(${requestStatusSql}) <> 'Draft'`);
+        signer.andWhere('1=0');
+      }
+    } else
+      group.andWhere('request.position = :position', {
+        position: String(positionId),
+      });
+    const [totals, approvals] = await Promise.all([
+      buildNomorStatusCounts(group, requestStatusSql).getRawMany<{
+        status: string;
+        total: string;
+      }>(),
+      signer.getCount(),
+    ]);
+    const counts = {
       menunggu_verifikasi: 0,
       disetujui: 0,
       ditolak: 0,
       belum_diajukan: 0,
       draft: 0,
+      menunggu_persetujuan: approvals,
+      total: 0,
     };
-
-    let processedCount = 0;
-    for (const request of requests) {
-      const details = request.details || [];
-
-      if (scopedAreaCode) {
-        const requestAreaCode = String(request.area || '')
-          .trim()
-          .toUpperCase();
-        if (requestAreaCode !== scopedAreaCode) {
-          continue;
-        }
-      }
-
-      // Skip jika request di-generate dari modul naskah
-      if (this.isNaskahGeneratedRequest(request, details)) {
-        continue;
-      }
-
-      const statusKey = this.determineStatusKeyFromDetails(details);
-
-      // Filter: jika status "belum_diajukan", hanya count yang dibuat oleh posisi ini
-      if (
-        statusKey === 'belum_diajukan' &&
-        request.position !== positionId.toString()
-      ) {
-        continue;
-      }
-
-      // Skip menunggu_persetujuan di loop utama; dihitung via penandatangan
-      if (statusKey === 'menunggu_persetujuan') {
-        // Draft hanya dihitung jika pengusul ber-role admin/superadmin
-        if (isProposedByAdmin(request)) {
-          statusCounts.draft++;
-        }
-        continue;
-      }
-
-      processedCount++;
-
-      // Increment counter
-      if (statusKey in statusCounts) {
-        statusCounts[statusKey as keyof typeof statusCounts]++;
-      }
+    const keys: Record<
+      string,
+      | 'menunggu_verifikasi'
+      | 'disetujui'
+      | 'ditolak'
+      | 'belum_diajukan'
+      | 'draft'
+    > = {
+      'Menunggu Verifikasi': 'menunggu_verifikasi',
+      Disetujui: 'disetujui',
+      Ditolak: 'ditolak',
+      'Belum Diajukan': 'belum_diajukan',
+      Draft: 'draft',
+    };
+    for (const row of totals) {
+      const key = keys[row.status];
+      if (key) counts[key] = Number(row.total);
+      if (key !== 'draft') counts.total += Number(row.total);
     }
+    return counts;
+  }
 
-    // Count menunggu_persetujuan untuk halaman persetujuan (sebagai penandatangan)
-    let menungguPersetujuanCount = 0;
-    for (const request of penandatanganRequests) {
-      const details = request.details || [];
-
-      if (scopedAreaCode) {
-        const requestAreaCode = String(request.area || '')
-          .trim()
-          .toUpperCase();
-        if (requestAreaCode !== scopedAreaCode) {
-          continue;
-        }
-      }
-
-      if (this.isNaskahGeneratedRequest(request, details)) {
-        continue;
-      }
-
-      const statusKey = this.determineStatusKeyFromDetails(details);
-      if (statusKey === 'menunggu_persetujuan') {
-        // Sinkron dengan draft: hanya usulan dari admin/superadmin
-        if (isProposedByAdmin(request)) {
-          menungguPersetujuanCount++;
-        }
-      }
-    }
-
+  async getAdminCountNomorRequest(
+    positionId: number,
+    user?: JwtPayload,
+  ): Promise<any> {
+    // Preserve the existing mandatory admin area scope.
+    this.getScopedAreaCode(user as JwtPayload);
     return {
       success: true,
       message: 'Count usulan nomor berhasil diambil',
-      data: {
-        menunggu_verifikasi: statusCounts.menunggu_verifikasi,
-        disetujui: statusCounts.disetujui,
-        ditolak: statusCounts.ditolak,
-        belum_diajukan: statusCounts.belum_diajukan,
-        draft: statusCounts.draft,
-        menunggu_persetujuan: menungguPersetujuanCount,
-        total: processedCount,
-      },
+      data: await this.nomorCountSummary(positionId, user),
     };
   }
 
-  /**
-   * Count nomor request by status filtered by position ID
-   * Hanya count data dari usulan manual (is_naskah_generated != true)
-   * OPTIMIZED: Menggunakan LEFT JOIN
-   */
   async getAdminCountNomorRequestByPosition(positionId: number): Promise<any> {
-    // Load requests by requester position and by penandatangan position in parallel
-    const [requests, penandatanganRequests] = await Promise.all([
-      this.nomorRequestRepository.find({
-        where: { position: positionId.toString() },
-        relations: ['details'],
-      }),
-      this.nomorRequestRepository.find({
-        where: { idPositionPenandatangan: positionId },
-        relations: ['details'],
-      }),
-    ]);
-
-    // Count by status
-    const statusCounts = {
-      menunggu_verifikasi: 0,
-      disetujui: 0,
-      ditolak: 0,
-      belum_diajukan: 0,
-      draft: 0,
-    };
-
-    let processedCount = 0;
-    for (const request of requests) {
-      const details = request.details || [];
-
-      // Skip jika request di-generate dari modul naskah
-      if (this.isNaskahGeneratedRequest(request, details)) {
-        continue;
-      }
-
-      const statusKey = this.determineStatusKeyFromDetails(details);
-
-      // Skip menunggu_persetujuan di loop utama; dihitung via penandatangan
-      if (statusKey === 'menunggu_persetujuan') {
-        statusCounts.draft++;
-        continue;
-      }
-
-      processedCount++;
-
-      // Increment counter
-      if (statusKey in statusCounts) {
-        statusCounts[statusKey as keyof typeof statusCounts]++;
-      }
-    }
-
-    // Count menunggu_persetujuan untuk halaman persetujuan (sebagai penandatangan)
-    let menungguPersetujuanCount = 0;
-    for (const request of penandatanganRequests) {
-      const details = request.details || [];
-
-      if (this.isNaskahGeneratedRequest(request, details)) {
-        continue;
-      }
-
-      const statusKey = this.determineStatusKeyFromDetails(details);
-      if (statusKey === 'menunggu_persetujuan') {
-        menungguPersetujuanCount++;
-      }
-    }
-
     return {
       success: true,
       message: 'Count usulan nomor untuk position berhasil diambil',
       data: {
         position_id: positionId,
-        menunggu_verifikasi: statusCounts.menunggu_verifikasi,
-        disetujui: statusCounts.disetujui,
-        ditolak: statusCounts.ditolak,
-        belum_diajukan: statusCounts.belum_diajukan,
-        draft: statusCounts.draft,
-        menunggu_persetujuan: menungguPersetujuanCount,
-        total: processedCount,
+        ...(await this.nomorCountSummary(positionId)),
       },
     };
   }
@@ -1349,7 +1114,6 @@ export class NomorService {
    * Admin melihat semua usulan nomor
    * Hanya menampilkan data dari usulan manual (is_naskah_generated != true)
    * Filter: Request yang pernah memiliki detail dengan status 'booking'
-   * OPTIMIZED: Menggunakan LEFT JOIN dan caching
    */
   async getAdminNomorRequest(
     query?: GetNomorQueryDto,
@@ -1494,187 +1258,56 @@ export class NomorService {
    * - Semua data dengan status selain "Belum Diajukan" ditampilkan
    * - Data dengan status "Belum Diajukan" hanya yang dibuat oleh posisi tertentu
    * - Hanya menampilkan data dari usulan manual (is_naskah_generated != true)
-   * OPTIMIZED: Menggunakan LEFT JOIN dan caching
    */
   async getAdminNomorRequestByPosition(
     positionId: number,
     query?: GetNomorQueryDto,
     user?: JwtPayload,
   ): Promise<GetAdminNomorRequestResponseDto> {
-    const normalizedStatus = this.normalizeStatusFilter(query?.status);
-    const scopedAreaCode = this.getScopedAreaCode(user as JwtPayload);
-
-    // Optimized: Load dengan relations dalam 1 query
-    const [requests, adminRoles] = await Promise.all([
-      this.nomorRequestRepository.find({
-        where: { isNaskahGenerated: false },
-        relations: ['details'],
-        order: { createdAt: 'DESC' },
-      }),
+    const area = this.getScopedAreaCode(user as JwtPayload);
+    const [positions, roles] = await Promise.all([
+      this.getLatestPositionJsonData(),
       this.userRoleRepository.find({
         where: [{ role: UserRole.ADMIN }, { role: UserRole.SUPERADMIN }],
         select: ['persnum'],
       }),
     ]);
-
-    const adminPersnumSet = new Set(adminRoles.map((r) => Number(r.persnum)));
-
-    // Optimized: Gunakan cached position data
-    const positionJsonData = await this.getLatestPositionJsonData();
-
-    // Process tanpa N+1 query
-    const data = requests.map((request) => {
-      const details = request.details || [];
-
-      if (scopedAreaCode) {
-        const requestAreaCode = String(request.area || '')
-          .trim()
-          .toUpperCase();
-        if (requestAreaCode !== scopedAreaCode) {
-          return null;
-        }
-      }
-
-      const status = this.determineStatusFromDetails(details);
-
-      // Filter: jika status "Belum Diajukan", hanya tampilkan yang dibuat oleh posisi ini
-      if (
-        status === 'Belum Diajukan' &&
-        request.position !== positionId.toString()
-      ) {
-        return null;
-      }
-
-      // Get position data
-      const positionNumber = parseInt(request.position!, 10);
-      const positionData = positionJsonData.find(
-        (p: any) => p.position === positionNumber,
-      );
-
-      const persnum = positionData?.persnum_person || null;
-      const nama = positionData?.persnum_person_text || null;
-
-      // Tampilkan hanya usulan dari user ber-role admin/superadmin
-      if (!persnum || !adminPersnumSet.has(Number(persnum))) {
-        return null;
-      }
-
-      const responseItem = {
-        id: request.id,
-        company: request.company!,
-        area: request.area!,
-        sub_area: request.subArea!,
-        organization: request.organization!,
-        position: request.position!,
-        persnum,
-        nama,
-        tanggal: request.tanggal!,
-        jenis: request.jenis!,
-        klasifikasi: request.klasifikasi,
-        perihal: request.perihal!,
-        jumlah: request.jumlah!,
-        penandatangan: request.penandatangan,
-        created_at: request.createdAt,
-        status,
-      };
-
-      // Apply search filter across all fields
-      if (query?.search) {
-        const searchLower = query.search.toLowerCase();
-        const searchFields = [
-          responseItem.id?.toString(),
-          responseItem.company,
-          responseItem.area,
-          responseItem.sub_area,
-          responseItem.organization,
-          responseItem.position,
-          responseItem.persnum?.toString(),
-          responseItem.nama,
-          responseItem.tanggal,
-          responseItem.jenis,
-          responseItem.klasifikasi,
-          responseItem.perihal,
-          responseItem.jumlah?.toString(),
-          responseItem.penandatangan,
-          responseItem.status,
-        ];
-
-        const isMatch = searchFields.some(
-          (field) => field && field.toLowerCase().includes(searchLower),
-        );
-
-        if (!isMatch) {
-          return null;
-        }
-      }
-
-      // Apply status filter
-      if (
-        normalizedStatus &&
-        normalizedStatus !== 'Semua' &&
-        status !== normalizedStatus
-      ) {
-        return null;
-      }
-
-      return responseItem;
-    });
-
-    // Filter out null values
-    const filteredData = data.filter(
-      (item): item is Exclude<typeof item, null> => item !== null,
+    const admins = new Set(roles.map((role) => Number(role.persnum)));
+    const adminPositions = positions
+      .filter((position) => admins.has(Number(position.persnum_person)))
+      .map((position) => String(position.position));
+    const byPosition = new Map(
+      positions.map((position) => [Number(position.position), position]),
     );
-
-    // Apply sorting
-    if (query?.sort_by) {
-      const sortOrder = query.sort_order?.toLowerCase() === 'asc' ? 1 : -1;
-      filteredData.sort((a, b) => {
-        let aValue: any;
-        let bValue: any;
-
-        if (query.sort_by === 'tanggal') {
-          aValue = new Date(a.tanggal).getTime();
-          bValue = new Date(b.tanggal).getTime();
-        } else if (
-          query.sort_by === 'tanggal_usulan' ||
-          query.sort_by === 'waktu'
-        ) {
-          aValue = new Date(a.created_at).getTime();
-          bValue = new Date(b.created_at).getTime();
-        } else if (query.sort_by === 'jenis') {
-          aValue = (a.jenis || '').toLowerCase();
-          bValue = (b.jenis || '').toLowerCase();
-          return aValue.localeCompare(bValue) * sortOrder;
-        } else if (query.sort_by === 'status') {
-          aValue = (a.status || '').toLowerCase();
-          bValue = (b.status || '').toLowerCase();
-          return aValue.localeCompare(bValue) * sortOrder;
-        } else {
-          return 0;
-        }
-
-        return (aValue - bValue) * sortOrder;
-      });
-    }
-
-    // Apply pagination
-    const page = query?.page || 1;
-    const limit = query?.limit || 10;
-    const total = filteredData.length;
-    const totalPages = Math.ceil(total / limit);
-    const skip = (page - 1) * limit;
-    const paginatedData = filteredData.slice(skip, skip + limit);
-
+    const { requests, pagination } = await this.loadNomorListPage(
+      query,
+      { mode: 'admin-usulan', area, adminPositions, draftPosition: positionId },
+      positions,
+    );
+    const data = requests.map((request) => ({
+      id: request.id,
+      company: request.company!,
+      area: request.area!,
+      sub_area: request.subArea!,
+      organization: request.organization!,
+      position: request.position!,
+      persnum: byPosition.get(Number(request.position))?.persnum_person || null,
+      nama:
+        byPosition.get(Number(request.position))?.persnum_person_text || null,
+      tanggal: request.tanggal!,
+      jenis: request.jenis!,
+      klasifikasi: request.klasifikasi,
+      perihal: request.perihal!,
+      jumlah: request.jumlah!,
+      penandatangan: request.penandatangan,
+      created_at: request.createdAt,
+      status: this.determineStatusFromDetails(request.details || []),
+    }));
     return {
       success: true,
       message: 'Data usulan nomor berhasil diambil',
-      data: paginatedData,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages,
-      },
+      data,
+      pagination,
     };
   }
 
@@ -1856,14 +1489,20 @@ export class NomorService {
    */
   private async generateNomorTemplate(
     request: NomorRequestEntity,
+    context?: {
+      jenis: Map<string, JenisEntity>;
+      org: Map<string, Promise<any>>;
+    },
   ): Promise<string | null> {
     try {
       if (!request.jenis) return null;
 
       // Ambil format dari jenis table
-      const jenisData = await this.jenisRepository.findOne({
-        where: { jenis: request.jenis },
-      });
+      const jenisData = context
+        ? context.jenis.get(request.jenis)
+        : await this.jenisRepository.findOne({
+            where: { jenis: request.jenis },
+          });
 
       if (!jenisData || !jenisData.formatPenomoran) {
         return null;
@@ -1878,7 +1517,17 @@ export class NomorService {
         let positionJsonData: any[] = [];
 
         try {
-          const orgData = await this.orgDataService.findOrg(tglFormatted);
+          if (context && !context.org.has(tglFormatted)) {
+            context.org.set(
+              tglFormatted,
+              this.orgDataService
+                .findOrg(tglFormatted)
+                .catch(() => this.orgDataService.findLatestOrg()),
+            );
+          }
+          const orgData = context
+            ? await context.org.get(tglFormatted)
+            : await this.orgDataService.findOrg(tglFormatted);
           if (orgData?.position_json && Array.isArray(orgData.position_json)) {
             positionJsonData = orgData.position_json;
           }
@@ -3314,177 +2963,48 @@ export class NomorService {
     query: GetNomorQueryDto,
     user?: JwtPayload,
   ): Promise<GetNomorResponseDto> {
-    const scopedAreaCode = user ? this.getScopedAreaCode(user) : undefined;
-
-    // Load requests yang memiliki nomor dengan status terpakai/hangus
-    const requests = await this.nomorRequestRepository.find({
-      relations: ['details'],
-      order: { createdAt: 'DESC' },
+    const area = user ? this.getScopedAreaCode(user) : undefined;
+    const { requests, pagination } = await this.loadNomorListPage(query, {
+      mode: 'nomor',
+      area,
     });
-
-    // Optimized: Gunakan cached position data
-    const positionJsonData = await this.getLatestPositionJsonData();
-
-    // Process dan filter requests yang memiliki nomor jadi
-    const usulanData = requests.map((request) => {
-      if (scopedAreaCode) {
-        const requestAreaCode = String(request.area || '')
-          .trim()
-          .toUpperCase();
-        if (requestAreaCode !== scopedAreaCode) {
-          return null;
-        }
-      }
-
-      // Filter details hanya yang sudah jadi (terpakai, terpakai_final, hangus)
-      const validDetails = (request.details || []).filter(
-        (d) =>
-          d.status === 'terpakai' ||
-          d.status === 'terpakai_final' ||
-          d.status === 'hangus',
-      );
-
-      // Skip jika tidak ada nomor yang sudah jadi
-      if (validDetails.length === 0) {
-        return null;
-      }
-
-      // Apply filter tahun jika ada
-      if (query.tahun) {
-        const requestTahun = new Date(request.tanggal!).getFullYear();
-        if (requestTahun !== query.tahun) {
-          return null;
-        }
-      }
-
-      // Apply search filter (search di nomor, perihal, atau jenis)
-      if (query.search) {
-        const searchLower = query.search.toLowerCase();
-        const nomorMatch = validDetails.some(
-          (d) => d.nomor && d.nomor.toLowerCase().includes(searchLower),
-        );
-        const perihalMatch =
-          request.perihal &&
-          request.perihal.toLowerCase().includes(searchLower);
-        const jenisMatch =
-          request.jenis && request.jenis.toLowerCase().includes(searchLower);
-
-        if (!nomorMatch && !perihalMatch && !jenisMatch) {
-          return null;
-        }
-      }
-
-      // Get position data pengusul
-      const positionNumber = parseInt(request.position || '0', 10);
-      const positionData = positionJsonData.find(
-        (p: any) => p.position === positionNumber,
-      );
-      const namaPengirim = positionData?.persnum_person_text || null;
-
-      // Get position data penandatangan
-      let jabatan = null;
-      if (request.idPositionPenandatangan) {
-        const penandatanganPosition = positionJsonData.find(
-          (p: any) =>
-            Number(p.position) === Number(request.idPositionPenandatangan),
-        );
-        jabatan = penandatanganPosition?.position_text || null;
-      }
-
-      // Sort details by createdAt DESC (terbaru di atas)
-      validDetails.sort(
-        (a, b) =>
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-      );
-
-      // Waktu usulan = waktu nomor terakhir yang dibuat (untuk sorting)
-      const latestDetailTime =
-        validDetails.length > 0 ? validDetails[0].createdAt : request.createdAt;
-
-      return {
-        request,
-        jabatan,
-        namaPengirim,
-        waktu: latestDetailTime,
-        details: validDetails,
-      };
-    });
-
-    // Filter out null values
-    const filteredUsulan = usulanData.filter((item) => item !== null);
-
-    // Apply sorting (default by waktu DESC - terbaru di atas)
-    const sortOrder = query?.sort_order?.toLowerCase() === 'asc' ? 1 : -1;
-    if (query?.sort_by) {
-      filteredUsulan.sort((a, b) => {
-        let aValue: any;
-        let bValue: any;
-
-        if (query.sort_by === 'tanggal') {
-          aValue = a.request.tanggal
-            ? new Date(a.request.tanggal).getTime()
-            : 0;
-          bValue = b.request.tanggal
-            ? new Date(b.request.tanggal).getTime()
-            : 0;
-        } else if (
-          query.sort_by === 'tanggal_usulan' ||
-          query.sort_by === 'waktu'
-        ) {
-          aValue = new Date(a.waktu).getTime();
-          bValue = new Date(b.waktu).getTime();
-        } else if (query.sort_by === 'jenis') {
-          aValue = (a.request.jenis || '').toLowerCase();
-          bValue = (b.request.jenis || '').toLowerCase();
-          return aValue.localeCompare(bValue) * sortOrder;
-        } else {
-          return 0;
-        }
-
-        return (aValue - bValue) * sortOrder;
-      });
-    } else {
-      // Default sort by waktu DESC
-      filteredUsulan.sort(
-        (a, b) => new Date(b.waktu).getTime() - new Date(a.waktu).getTime(),
-      );
-    }
-
-    // Apply pagination (per usulan, bukan per nomor)
-    const page = query?.page || 1;
-    const limit = query?.limit || 10;
-    const total = filteredUsulan.length; // Total usulan
-    const totalPages = Math.ceil(total / limit);
-    const skip = (page - 1) * limit;
-    const paginatedUsulan = filteredUsulan.slice(skip, skip + limit);
-
-    // Flatten ke format per-nomor untuk response
-    const flatData = paginatedUsulan.flatMap((item) =>
-      item.details.map((detail) => ({
-        id: detail.id,
-        id_request: item.request.id,
-        jenis: item.request.jenis,
-        jabatan: item.jabatan,
-        klasifikasi: item.request.klasifikasi,
-        perihal: item.request.perihal,
-        tanggal: item.request.tanggal,
-        nomor: detail.nomor,
-        status: detail.status,
-        nama_pengirim: item.namaPengirim,
-        waktu: detail.createdAt,
-      })),
+    const positions = await this.getLatestPositionJsonData();
+    const byPosition = new Map(
+      positions.map((position) => [Number(position.position), position]),
     );
-
+    const data = requests.flatMap((request) => {
+      const nama =
+        byPosition.get(Number(request.position))?.persnum_person_text || null;
+      const jabatan =
+        byPosition.get(Number(request.idPositionPenandatangan))
+          ?.position_text || null;
+      return (request.details || [])
+        .filter((detail) =>
+          ['terpakai', 'terpakai_final', 'hangus'].includes(detail.status),
+        )
+        .sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        )
+        .map((detail) => ({
+          id: detail.id,
+          id_request: request.id,
+          jenis: request.jenis,
+          jabatan,
+          klasifikasi: request.klasifikasi,
+          perihal: request.perihal,
+          tanggal: request.tanggal,
+          nomor: detail.nomor,
+          status: detail.status,
+          nama_pengirim: nama,
+          waktu: detail.createdAt,
+        }));
+    });
     return {
       success: true,
       message: 'Data nomor berhasil diambil',
-      data: flatData,
-      pagination: {
-        page,
-        limit,
-        total, // Total usulan (bukan nomor)
-        totalPages,
-      },
+      data,
+      pagination,
     };
   }
 
@@ -3695,31 +3215,26 @@ export class NomorService {
     positionId: number,
     query?: GetNomorQueryDto,
   ): Promise<any> {
-    // Ambil semua request yang penandatangannya adalah posisi ini
-    const requests = await this.nomorRequestRepository.find({
-      where: [
-        { idPositionPenandatangan: positionId, isNaskahGenerated: false },
-        { idPositionPenandatangan: positionId, isNaskahGenerated: IsNull() },
-      ],
-      relations: ['details'],
-      order: { createdAt: 'DESC' },
-    });
-
-    const positionJsonData = await this.getLatestPositionJsonData();
-
+    const positions = await this.getLatestPositionJsonData();
+    const byPosition = new Map(
+      positions.map((position) => [Number(position.position), position]),
+    );
+    const { requests, pagination, counts } = await this.loadNomorListPage(
+      query,
+      { mode: 'approval', position: positionId },
+      positions,
+    );
+    const context = await this.listTemplateContext(requests);
     const data = await Promise.all(
       requests.map(async (request) => {
         const details = request.details || [];
-        const requestStatus = details.some((d) => d.status !== 'draft')
-          ? 'approved'
-          : 'draft';
-        const positionNumber = parseInt(request.position!, 10);
-        const positionData = positionJsonData.find(
-          (p: any) => p.position === positionNumber,
-        );
-
-        const templateNomor = await this.generateNomorTemplate(request);
-
+        const template = await this.generateNomorTemplate(request, context);
+        const status =
+          this.determineStatusFromDetails(details) === 'Ditolak'
+            ? 'rejected'
+            : details.some((detail) => detail.status !== 'draft')
+              ? 'approved'
+              : 'draft';
         return {
           id: request.id,
           company: request.company,
@@ -3727,7 +3242,9 @@ export class NomorService {
           sub_area: request.subArea,
           organization: request.organization,
           position: request.position,
-          nama: positionData?.persnum_person_text || null,
+          nama:
+            byPosition.get(Number(request.position))?.persnum_person_text ||
+            null,
           tanggal: request.tanggal,
           jenis: request.jenis,
           klasifikasi: request.klasifikasi,
@@ -3735,50 +3252,28 @@ export class NomorService {
           jumlah: request.jumlah,
           penandatangan: request.penandatangan,
           is_single_file: request.isSingleFile,
-          status: requestStatus,
-          template_nomor: templateNomor,
+          status,
+          template_nomor: template,
           created_at: request.createdAt,
           details: await Promise.all(
-            details.map(async (d) => ({
-              id: d.id,
-              status: d.status,
-              file_name: d.fileName,
-              file_url: await this.getDetailFileUrlAndHeal(d, 'nomor'),
-              template_nomor: templateNomor,
-              created_at: d.createdAt,
+            details.map(async (detail) => ({
+              id: detail.id,
+              status: detail.status,
+              file_name: detail.fileName,
+              file_url: await this.getDetailFileUrlAndHeal(detail, 'nomor'),
+              template_nomor: template,
+              created_at: detail.createdAt,
             })),
           ),
         };
       }),
     );
-
-    // Apply search
-    let filteredData = data;
-    if (query?.search) {
-      const searchLower = query.search.toLowerCase();
-      filteredData = data.filter(
-        (item) =>
-          item.perihal?.toLowerCase().includes(searchLower) ||
-          item.jenis?.toLowerCase().includes(searchLower) ||
-          item.klasifikasi?.toLowerCase().includes(searchLower) ||
-          item.nama?.toLowerCase().includes(searchLower) ||
-          item.status?.toLowerCase().includes(searchLower),
-      );
-    }
-
-    // Apply pagination
-    const page = query?.page || 1;
-    const limit = query?.limit || 10;
-    const total = filteredData.length;
-    const totalPages = Math.ceil(total / limit);
-    const skip = (page - 1) * limit;
-    const paginatedData = filteredData.slice(skip, skip + limit);
-
     return {
       success: true,
       message: 'Daftar usulan menunggu persetujuan berhasil diambil',
-      data: paginatedData,
-      pagination: { page, limit, total, totalPages },
+      data,
+      pagination,
+      counts,
     };
   }
 
