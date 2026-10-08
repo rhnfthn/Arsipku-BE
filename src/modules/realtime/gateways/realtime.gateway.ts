@@ -287,6 +287,16 @@ export class RealtimeGateway
   }
 
   /**
+   * Emit jumlah naskah tertunda (badge menu Tertunda) ke satu position room.
+   */
+  emitTertundaCount(positionId: string, count: number) {
+    if (!this.server) return;
+    this.server
+      .to(`position:${positionId}`)
+      .emit('tertunda:count', { positionId, count });
+  }
+
+  /**
    * Emit label counts change.
    */
   emitLabelCounts(positionId: string, counts: Record<string, number>) {

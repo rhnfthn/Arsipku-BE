@@ -13,6 +13,7 @@ import { NotificationModule } from '../notification/notification.module';
 import { RealtimeModule } from '../realtime/realtime.module';
 import { ConfigAdminModule } from '../config/config.module';
 import { NaskahLainnyaDokumenEntity } from '../naskah-lainnya/entities/naskah-lainnya-dokumen.entity';
+import { KonsepRiwayatEntity } from '../konsep/entities/konsep-riwayat.entity';
 import { MailServiceModule } from '../mail-service/mail-service.module';
 
 @Module({
@@ -24,6 +25,7 @@ import { MailServiceModule } from '../mail-service/mail-service.module';
       NaskahSirkulasi,
       NaskahEntity,
       NaskahLainnyaDokumenEntity,
+      KonsepRiwayatEntity,
       Person,
     ]),
     OrgDataModule,

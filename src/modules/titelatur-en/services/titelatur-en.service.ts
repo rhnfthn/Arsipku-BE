@@ -1,19 +1,49 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { TitelaturEnEntity } from '../entities/titelatur-en.entity';
 import { CreateTitelaturEnDto } from '../dto/create-titelatur-en.dto';
 import { UpdateTitelaturEnDto } from '../dto/update-titelatur-en.dto';
+import { TitelaturTranslateService } from './titelatur-translate.service';
 
 @Injectable()
 export class TitelaturEnService {
   constructor(
     @InjectRepository(TitelaturEnEntity)
     private readonly titelaturRepository: Repository<TitelaturEnEntity>,
+    private readonly translateService: TitelaturTranslateService,
   ) {}
 
+  /**
+   * Cek duplikasi titelatur Indonesia (long_text). Case-insensitive dan
+   * trim — "Direktur Utama" dianggap sama dengan "direktur utama ".
+   * excludeId dipakai saat update agar baris sendiri tidak dianggap duplikat.
+   */
+  private async assertNoDuplicateLongText(
+    longText: string | null | undefined,
+    excludeId?: string,
+  ): Promise<void> {
+    if (!longText || !longText.trim()) return;
+    const normalized = longText.trim().toLowerCase();
+
+    // Query terarah dengan normalisasi di SQL — tidak load seluruh tabel.
+    const qb = this.titelaturRepository
+      .createQueryBuilder('t')
+      .where('LOWER(TRIM(t.long_text)) = :normalized', { normalized });
+    if (excludeId) qb.andWhere('t.id != :excludeId', { excludeId });
+    const duplicate = await qb.getOne();
+
+    if (duplicate) {
+      throw new BadRequestException(
+        `Titelatur Indonesia "${longText.trim()}" sudah ada. Gunakan titelatur yang berbeda.`,
+      );
+    }
+  }
+
   async create(dto: CreateTitelaturEnDto): Promise<TitelaturEnEntity> {
+    await this.assertNoDuplicateLongText(dto.long_text);
+
     const now = new Date();
     const entity = this.titelaturRepository.create({
       id: uuidv4(),
@@ -24,7 +54,9 @@ export class TitelaturEnService {
       long_text: dto.long_text || null,
       long_text_en: dto.long_text_en || null,
     });
-    return await this.titelaturRepository.save(entity);
+    const saved = await this.titelaturRepository.save(entity);
+    this.translateService.invalidateCache();
+    return saved;
   }
 
   async findAll(
@@ -51,6 +83,12 @@ export class TitelaturEnService {
     dto: UpdateTitelaturEnDto,
   ): Promise<TitelaturEnEntity> {
     const e = await this.findOne(id);
+
+    // Validasi duplikasi hanya jika long_text diubah.
+    if (dto.long_text !== undefined) {
+      await this.assertNoDuplicateLongText(dto.long_text, id);
+    }
+
     Object.assign(e, dto);
     if (dto.start_date === undefined) {
       // keep as is
@@ -65,11 +103,14 @@ export class TitelaturEnService {
       e.end_date = new Date(dto.end_date);
     }
 
-    return await this.titelaturRepository.save(e);
+    const saved = await this.titelaturRepository.save(e);
+    this.translateService.invalidateCache();
+    return saved;
   }
 
   async remove(id: string): Promise<void> {
     const e = await this.findOne(id);
     await this.titelaturRepository.remove(e);
+    this.translateService.invalidateCache();
   }
 }

@@ -50,6 +50,7 @@ describe('NaskahShareService dissemination recipients', () => {
       {} as any,
       {} as any,
       {} as any,
+      {} as any,
       personRepo as any,
       orgDataService as any,
       {} as any,
@@ -109,6 +110,7 @@ describe('NaskahShareService dissemination recipients', () => {
       {} as any,
       {} as any,
       {} as any,
+      {} as any,
     );
 
     const key = await (service as any).resolveFinalPdfKey({
@@ -155,6 +157,7 @@ describe('NaskahShareService dissemination recipients', () => {
       {} as any,
       {} as any,
       {} as any,
+      {} as any,
     );
 
     const result = await (service as any).findNotFinalizedNaskahs([
@@ -178,6 +181,7 @@ describe('NaskahShareService dissemination recipients', () => {
       {} as any,
       {} as any,
       documentRepo as any,
+      {} as any,
       {} as any,
       {} as any,
       {} as any,
