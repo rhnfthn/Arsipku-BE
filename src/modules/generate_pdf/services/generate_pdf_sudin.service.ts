@@ -293,23 +293,12 @@ export class GeneratePdfSudinService {
       }
     }
 
-    // Helper function untuk mengambil hanya position_text (sebelum " - ")
-    const extractPositionText = (text: string): string => {
-      if (!text) return '';
-      // GM sudah diformat lengkap oleh service SDI: nama, jabatan, dan lokasi.
-      // Jangan buang area/sub-area ketika template English mengambil penerima.
-      if (/\b(?:general\s+manager|GM)\b/i.test(text)) return text.trim();
-      const dashIndex = text.indexOf(' - ');
-      return dashIndex !== -1
-        ? text.substring(0, dashIndex).trim()
-        : text.trim();
-    };
-
     const penerimaExceedsLimit = penerimaArr.length > 5;
     const tembusanExceedsLimit = tembusanArr.length > 5;
     const needsAddressPage = penerimaExceedsLimit || tembusanExceedsLimit;
 
-    // Process penerima (English) - hanya tampilkan position_text (sebelum " - ")
+    // Process penerima (English) — tampilkan apa adanya (selaras template
+    // Indonesia; translate titelatur sudah dilakukan di service SDE).
     let penerimaHtml = '';
     if (penerimaExceedsLimit) {
       penerimaHtml = 'Please See Attached Address List<br>';
@@ -318,15 +307,15 @@ export class GeneratePdfSudinService {
         penerimaHtml =
           "<ol style='margin:0;padding-left:0;list-style-position:inside;'>";
         penerimaArr.forEach((item) => {
-          penerimaHtml += `<li>${extractPositionText(item)}</li>`;
+          penerimaHtml += `<li>${item}</li>`;
         });
         penerimaHtml += '</ol>';
       } else if (penerimaArr.length === 1) {
-        penerimaHtml = extractPositionText(penerimaArr[0]) || '';
+        penerimaHtml = penerimaArr[0] || '';
       }
     }
 
-    // Process tembusan (English) - hanya tampilkan position_text (sebelum " - ")
+    // Process tembusan (English) — tampilkan apa adanya (selaras Indonesia).
     // Nomor hanya untuk daftar yang memuat lebih dari satu penerima.
     let tembusanHtml = '';
     if (tembusanExceedsLimit) {
@@ -334,11 +323,11 @@ export class GeneratePdfSudinService {
     } else if (tembusanArr.length > 1) {
       tembusanHtml = "<ol style='margin:0;padding-left:0;list-style-position:inside;'>";
       tembusanArr.forEach((item) => {
-        tembusanHtml += `<li>${extractPositionText(item)}</li>`;
+        tembusanHtml += `<li>${item}</li>`;
       });
       tembusanHtml += '</ol>';
     } else if (tembusanArr.length === 1) {
-      tembusanHtml = extractPositionText(tembusanArr[0]);
+      tembusanHtml = tembusanArr[0];
     }
 
     // Tembusan section English
@@ -408,9 +397,10 @@ export class GeneratePdfSudinService {
                   </tr>
                   <tr>
                     <td colspan="3" valign="top" style="padding-top:15px;width:100%;">
-                      Dear,<br>
+                      To,<br>
                       <div style="width:100%;margin:0;padding:0;">
-                        ${penerimaHtml}
+                        ${penerimaHtml}<br>
+                        In Place
                       </div>
                     </td>
                   </tr>
@@ -438,13 +428,13 @@ export class GeneratePdfSudinService {
         </div>`
       : '';
 
-    // TTD section (English) - tanggal, jabatan, QR, lalu nama penandatangan.
+    // TTD section (English) — selaras template Indonesia: rata kiri,
+    // tanpa tanggal dobel (tanggal sudah tampil di header info surat).
     const ttd = `
       <table style="width:100%;margin-top:25px;">
         <tbody>
           <tr>
-            <td style="width:50%;text-align:center;">
-              ${tanggalFormatted}<br>
+            <td style="width:50%;text-align:left;">
               ${atasNama ? `a.n ${atasNama}<br>` : ''}${positionText}<br>
               ${qrCodeHtml ? `<div style="margin: 10px 0;">${qrCodeHtml}</div>` : '<br><br><br><br><br>'}
               ${namaLengkap}
@@ -488,8 +478,7 @@ export class GeneratePdfSudinService {
       if (penerimaExceedsLimit) {
         penerimaListHtml = "<ol style='margin-top:0px;margin-left:0px;'>";
         penerimaArr.forEach((item) => {
-          // Hanya tampilkan position_text (sebelum " - ")
-          penerimaListHtml += `<li>${extractPositionText(item)}</li>`;
+          penerimaListHtml += `<li>${item}</li>`;
         });
         penerimaListHtml += '</ol>';
       }
@@ -498,8 +487,7 @@ export class GeneratePdfSudinService {
       if (tembusanExceedsLimit) {
         tembusanListHtml = "<ol style='margin-top:0px;margin-left:0px;'>";
         tembusanArr.forEach((item) => {
-          // Hanya tampilkan position_text (sebelum " - ")
-          tembusanListHtml += `<li>${extractPositionText(item)}</li>`;
+          tembusanListHtml += `<li>${item}</li>`;
         });
         tembusanListHtml += '</ol>';
       }
