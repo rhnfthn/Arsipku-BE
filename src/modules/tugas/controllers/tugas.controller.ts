@@ -22,12 +22,14 @@ import { RequirePermission } from '../../../common/decorators/require-permission
 import { PositionStatus } from '../../../common/enums/position-status.enum';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { PermissionGuard } from '../../../common/guards/permission.guard';
+import { QueryReferenceCandidateDto } from '../dto/reference.dto';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 import {
   AddBoardMemberDto,
   AddTaskReferenceDto,
   CreateBoardDto,
   CreateTaskCommentDto,
+  SetCommentReactionDto,
   CreateTaskDto,
   DeleteTaskCommentScopeDto,
   MoveTaskDto,
@@ -46,6 +48,7 @@ import {
   TugasEvidenceService,
   TugasMemberService,
   TugasReferenceService,
+  TugasReferenceResolver,
   TugasTaskService,
   TugasTimelineService,
 } from '../services';
@@ -68,6 +71,7 @@ export class TugasController {
     private readonly referenceService: TugasReferenceService,
     private readonly evidenceService: TugasEvidenceService,
     private readonly commentService: TugasCommentService,
+    private readonly referenceResolver: TugasReferenceResolver,
   ) {}
 
   @Post('boards')
@@ -256,6 +260,15 @@ export class TugasController {
     return this.taskService.remove(taskId, user);
   }
 
+  @Get('reference-candidates')
+  @RequirePermission('tugas', 'read-board')
+  referenceCandidates(
+    @Query() query: QueryReferenceCandidateDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.referenceResolver.candidates(query.source, query.q, user);
+  }
+
   @Get('tasks/:taskId/references')
   @RequirePermission('tugas', 'read-board')
   findTaskReferences(
@@ -333,6 +346,54 @@ export class TugasController {
     return this.evidenceService.remove(taskId, evidenceId, user);
   }
 
+  @Get('tasks/:taskId/reference-files')
+  @RequirePermission('tugas', 'read-board')
+  findTaskReferenceFiles(
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.evidenceService.list(taskId, user, 'reference');
+  }
+
+  @Post('tasks/:taskId/reference-files')
+  @RequirePermission('tugas', 'update-task')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: 10 * 1024 * 1024 },
+      fileFilter: (_request, file, callback) => {
+        if (
+          ['image/jpeg', 'image/png', 'application/pdf'].includes(file.mimetype)
+        ) {
+          callback(null, true);
+          return;
+        }
+        callback(
+          new BadRequestException(
+            'Referensi hanya mendukung file JPG, PNG, atau PDF',
+          ),
+          false,
+        );
+      },
+    }),
+  )
+  addTaskReferenceFile(
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.evidenceService.add(taskId, file, user, 'reference');
+  }
+
+  @Delete('tasks/:taskId/reference-files/:evidenceId')
+  @RequirePermission('tugas', 'update-task')
+  removeTaskReferenceFile(
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('evidenceId', ParseUUIDPipe) evidenceId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.evidenceService.remove(taskId, evidenceId, user, 'reference');
+  }
+
   // ─── Forum diskusi papan ─────────────────────────────────────────────────────
 
   /**
@@ -347,6 +408,27 @@ export class TugasController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.commentService.list(boardId, query, user);
+  }
+
+  @Get('boards/:boardId/comments/:commentId/reactions')
+  @RequirePermission('tugas', 'read-board')
+  getCommentReactions(
+    @Param('boardId', ParseUUIDPipe) boardId: string,
+    @Param('commentId', ParseUUIDPipe) commentId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.commentService.getReactions(boardId, commentId, user);
+  }
+
+  @Post('boards/:boardId/comments/:commentId/reactions')
+  @RequirePermission('tugas', 'read-board')
+  setCommentReaction(
+    @Param('boardId', ParseUUIDPipe) boardId: string,
+    @Param('commentId', ParseUUIDPipe) commentId: string,
+    @Body() dto: SetCommentReactionDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.commentService.setReaction(boardId, commentId, dto, user);
   }
 
   /** POST /tugas/boards/:boardId/comments — tambah komentar forum papan. */

@@ -98,6 +98,7 @@ export class DraftController {
         query.sort,
         pageNum,
         limitNum,
+        Number(user.persnum),
       );
     } catch (error) {
       if (error instanceof HttpException) {

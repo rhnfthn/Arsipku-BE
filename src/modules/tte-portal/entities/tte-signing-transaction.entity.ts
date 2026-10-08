@@ -46,7 +46,7 @@ export class TteSigningTransactionEntity {
   @Column('varchar', { name: 'user_name', length: 150, nullable: true })
   userName: string | null;
 
-  /** NIK signer 16 digit (per-user, bukan shared) */
+  /** NIK signer 16 digit: identitas uji pada DEV, NIK HR pengguna pada PRD */
   @Column('char', { name: 'signer_nik', length: 16 })
   signerNik: string;
 

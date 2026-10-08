@@ -12,6 +12,7 @@ import {
   TugasActivityEntity,
   TugasBoardEntity,
   TugasBoardMemberEntity,
+  TugasCommentReactionEntity,
   TugasTaskCommentEntity,
   TugasTaskCommentHideEntity,
   TugasTaskEvidenceEntity,
@@ -38,6 +39,7 @@ import {
     TypeOrmModule.forFeature([
       TugasBoardEntity,
       TugasBoardMemberEntity,
+      TugasCommentReactionEntity,
       TugasTaskCommentEntity,
       TugasTaskCommentHideEntity,
       TugasTaskEvidenceEntity,

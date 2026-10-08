@@ -46,6 +46,17 @@ export class TugasReferenceService {
    * menyuntikkan route sendiri. Duplicate (task, type, id) ditolak.
    */
   async add(taskId: string, dto: AddTaskReferenceDto, actor: TugasActor) {
+    if (
+      ![
+        TugasReferenceType.NASKAH_MASUK,
+        TugasReferenceType.NASKAH_TERKIRIM,
+        TugasReferenceType.DISPOSISI,
+      ].includes(dto.referenceType)
+    ) {
+      throw new BadRequestException(
+        'Referensi naskah harus berasal dari Kotak Masuk atau Terkirim',
+      );
+    }
     const hasReferenceId = Boolean(dto.referenceId);
     const hasReferenceNumber = Boolean(dto.referenceNumber);
     if (hasReferenceId === hasReferenceNumber) {

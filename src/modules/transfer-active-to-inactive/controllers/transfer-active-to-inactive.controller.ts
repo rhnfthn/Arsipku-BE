@@ -6,9 +6,7 @@ import {
   Param,
   Body,
   Query,
-  Header,
   Res,
-  StreamableFile,
   UseGuards,
 } from '@nestjs/common';
 import type { Response } from 'express';
@@ -418,15 +416,18 @@ export class TransferActiveToInactiveController {
   */
   @Get(':id/berita-acara.pdf')
   @SkipTransform()
-  @Header('Content-Type', 'application/pdf')
-  @Header('Content-Disposition', 'inline')
   async previewBacPdf(
     @Param('id') id: string,
     @CurrentUser() user: JwtPayload,
-    @Res({ passthrough: true }) response: Response,
-  ): Promise<StreamableFile> {
+    @Res() response: Response,
+  ): Promise<void> {
     const buffer = await this.service.getBeritaAcaraPdf(id, user);
-    response.setHeader('Content-Length', buffer.length);
-    return new StreamableFile(buffer);
+    response.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `inline; filename="berita-acara-${id}.pdf"`,
+      'Content-Length': String(buffer.length),
+      'Cache-Control': 'private, no-store',
+    });
+    response.send(buffer);
   }
 }
