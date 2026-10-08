@@ -57,6 +57,49 @@ export class RealtimeEmitService {
     }
   }
 
+  /**
+   * Emit jumlah naskah tertunda (badge menu Tertunda) untuk satu position.
+   */
+  emitTertundaCount(positionId: string, count: number) {
+    try {
+      this.gateway.emitTertundaCount(positionId, count);
+    } catch (err: any) {
+      this.logger.warn(
+        `⚠️ [emitTertundaCount] failed for ${positionId}: ${err?.message}`,
+      );
+    }
+  }
+
+  /**
+   * Hitung jumlah naskah tertunda milik position lalu emit ke socket room
+   * position tersebut (badge sidebar Tertunda). Non-blocking & fail-safe.
+   * DataSource dikirim pemanggil agar service ini tetap bebas dependency
+   * data (komentar class di atas).
+   */
+  async emitTertundaCountForPosition(
+    dataSource: { query: (sql: string, params?: any[]) => Promise<any> },
+    positionId: string,
+  ): Promise<void> {
+    try {
+      const result = await dataSource.query(
+        `SELECT COUNT(*) as total
+         FROM naskah_sirkulasi s
+         INNER JOIN naskah n ON s.id_naskah = n.id
+         WHERE s.position = ?
+         AND s.sirkuler = 'pengirim'
+         AND s.is_draft = 1
+         AND n.status = 'pending'`,
+        [positionId],
+      );
+      const total = parseInt(result[0]?.total || '0', 10);
+      this.emitTertundaCount(positionId, total);
+    } catch (err: any) {
+      this.logger.warn(
+        `⚠️ [emitTertundaCountForPosition] failed for ${positionId}: ${err?.message}`,
+      );
+    }
+  }
+
   // ──────────────────────────────────────────────
   // Label counts
   // ──────────────────────────────────────────────
