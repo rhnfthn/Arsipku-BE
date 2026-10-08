@@ -71,6 +71,39 @@ export class AjukanPenyusutanDto {
   daftarArsip?: Array<{ id: string; nama: string; kode: string }>;
 }
 
+/** Payload untuk memindahkan berkas yang retensinya habis ke daftar draft. */
+export class SimpanDraftPenyusutanDto {
+  @IsString()
+  berkasId: string;
+
+  @IsOptional()
+  @IsString()
+  kodeBerkas?: string;
+
+  @IsOptional()
+  @IsString()
+  namaBerkas?: string;
+
+  @IsOptional()
+  @IsString()
+  klasifikasi?: string;
+
+  @IsOptional()
+  @IsString()
+  klasifikasiText?: string;
+
+  @IsString()
+  tanggalRetensiHabis: string;
+
+  @IsOptional()
+  @IsIn(['permanen', 'musnah'])
+  jenisPenyusutan?: string;
+
+  @IsOptional()
+  @IsArray()
+  daftarArsip?: Array<{ id: string; nama: string; kode: string }>;
+}
+
 /** DTO untuk verifikasi (setuju/tolak) oleh atasan managerial. */
 export class VerifyPenyusutanDto {
   @IsOptional()

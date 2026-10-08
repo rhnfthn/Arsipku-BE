@@ -17,6 +17,7 @@ import {
   SimpanPenataanDto,
   PemusnahanDto,
   BackupDataDto,
+  SimpanDraftPenyusutanDto,
 } from '../dto/penyusutan.dto';
 import { JwtAuthGuard, RolesGuard } from '../../../common/guards';
 import { CurrentUser, Roles, Public } from '../../../common/decorators';
@@ -62,6 +63,18 @@ export class PenyusutanController {
       success: true,
       data: await this.service.findAllForTu(user, { status, search }),
     };
+  }
+
+  /** Simpan arsip yang retensi inaktifnya habis sebagai draft penyusutan. */
+  @Post('draft')
+  @Roles(RoleName.USER, RoleName.ADMIN, RoleName.SUPERADMIN)
+  @RequirePermission('pemeliharaan.penyusutan.pengajuan', 'create')
+  @AllowViewerWrite(PositionStatus.SE)
+  async simpanDraft(
+    @Body() dto: SimpanDraftPenyusutanDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return { success: true, data: await this.service.simpanDraft(dto, user) };
   }
 
   /** Daftar pengajuan untuk verifikasi oleh Atasan Managerial TU. */

@@ -8,13 +8,20 @@ import { AuditModule } from '../audit/audit.module';
 import { ArsipModule } from '../arsip/arsip.module';
 import { TuGuard } from '../tu-verifikasi/guards/tu-guard';
 import { TuVerifikasiModule } from '../tu-verifikasi/tu-verifikasi.module';
+import { TransferActiveToInactiveEntity } from '../transfer-active-to-inactive/entities/transfer-active-to-inactive.entity';
+import { TransferActiveToInactiveModule } from '../transfer-active-to-inactive/transfer-active-to-inactive.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([PenyusutanEntity, PenyusutanVerifikatorEntity]),
+    TypeOrmModule.forFeature([
+      PenyusutanEntity,
+      PenyusutanVerifikatorEntity,
+      TransferActiveToInactiveEntity,
+    ]),
     AuditModule,
     ArsipModule,
     TuVerifikasiModule,
+    TransferActiveToInactiveModule,
   ],
   controllers: [PenyusutanController],
   providers: [PenyusutanService, TuGuard],

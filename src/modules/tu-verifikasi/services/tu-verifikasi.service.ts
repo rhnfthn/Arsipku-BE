@@ -160,7 +160,7 @@ export class TuVerifikasiService {
     // alih-alih nama. Logika sama dengan transfer-active-to-inactive service.
     await this.resolveSekretarisNames(allData);
 
-    // Attach klasifikasi berkas (lookup by arsipId) untuk kolom Klasifikasi di frontend.
+    // Attach klasifikasi berkas (lookup by arsipId).
     await this.attachKlasifikasi(allData);
 
     let data = allData;
@@ -1127,10 +1127,17 @@ export class TuVerifikasiService {
   async findAllPenataan(filter: TuFilterDto) {
     const page = Math.max(1, filter.page ?? 1);
     const limit = Math.max(1, filter.limit ?? 10);
+    const statusFilter = String(filter.status ?? '').toUpperCase();
+    const effectiveStatusFilters = [
+      'DITERIMA',
+      'MENUNGGU_RETENSI_INAKTIF',
+      'SIAP_PENYUSUTAN',
+    ];
+    const hasEffectiveStatusFilter = effectiveStatusFilters.includes(statusFilter);
 
     const qb = this.transferRepo.createQueryBuilder('t');
 
-    if (filter.status) {
+    if (filter.status && !hasEffectiveStatusFilter) {
       qb.andWhere('t.status = :status', { status: filter.status });
     } else {
       qb.andWhere('t.status IN (:...statuses)', {
@@ -1138,20 +1145,20 @@ export class TuVerifikasiService {
       });
     }
 
-    if (filter.search) {
-      qb.andWhere(
-        '(t.nomor_usulan LIKE :search OR t.arsip_perihal LIKE :search OR t.arsip_kode LIKE :search OR t.sekretaris_name LIKE :search)',
-        { search: `%${filter.search}%` },
-      );
-    }
-
     qb.orderBy('t.received_at', 'DESC').addOrderBy('t.created_at', 'DESC');
 
-    // Klasifikasi & status tidak selalu ada di tabel transfer, jadi jika ada
-    // search/klasifikasi filter, ambil semua dulu lalu post-filter manual.
+    // Klasifikasi dan nasib efektif berasal dari metadata berkas,
+    // bukan kolom transfer; filter tersebut diterapkan setelah metadata dimuat.
     const hasSearch = !!filter.search;
     const hasKlasifikasiFilter = !!filter.klasifikasi;
-    if (!hasSearch && !hasKlasifikasiFilter) {
+    const nasibFilter = String(filter.nasibAkhir ?? '').trim().toUpperCase();
+    const hasNasibFilter = ['PERMANEN', 'MUSNAH'].includes(nasibFilter);
+    const hasPostFilter =
+      hasSearch ||
+      hasKlasifikasiFilter ||
+      hasNasibFilter ||
+      hasEffectiveStatusFilter;
+    if (!hasPostFilter) {
       qb.skip((page - 1) * limit).take(limit);
     }
 
@@ -1162,8 +1169,9 @@ export class TuVerifikasiService {
     // alih-alih nama. Logika sama dengan findAllNotifikasi di service ini.
     await this.resolveSekretarisNames(allData);
 
-    // Attach klasifikasi berkas (lookup by arsipId) untuk kolom Klasifikasi di frontend.
-    await this.attachKlasifikasi(allData);
+    // Ambil metadata dari setiap arsip dalam usulan (termasuk usulan multi-arsip)
+    // untuk daftar arsip inaktif TU.
+    await this.attachPenataanArsipMetadata(allData);
 
     let data = allData;
     let total = allTotal;
@@ -1172,9 +1180,23 @@ export class TuVerifikasiService {
     if (hasSearch) {
       const q = filter.search!.toLowerCase();
       data = allData.filter((d: any) => {
-        const klasifikasi = (d.arsipKlasifikasi ?? '').toLowerCase();
-        const status = (d.status ?? '').toLowerCase();
-        return klasifikasi.includes(q) || status.includes(q);
+        const searchable = [
+          d.nomorUsulan,
+          d.sekretarisName,
+          d.status,
+          ...(d.arsipRows ?? []).flatMap((arsip: any) => [
+            arsip.kodeBerkas,
+            arsip.klasifikasiKode,
+            arsip.klasifikasi,
+            arsip.uraianInformasi,
+            arsip.kurunWaktu,
+            arsip.lokasiSimpan,
+            arsip.klasifikasiKeamanan,
+            arsip.retensiArsipInaktif,
+            arsip.nasibAkhir,
+          ]),
+        ].filter(Boolean).join(' ').toLowerCase();
+        return searchable.includes(q);
       });
       total = data.length;
     }
@@ -1183,15 +1205,68 @@ export class TuVerifikasiService {
     if (hasKlasifikasiFilter) {
       const fk = filter.klasifikasi!.toLowerCase();
       data = data.filter((d: any) => {
-        const kode = (d.arsipKlasifikasiKode ?? '').toLowerCase();
-        const teks = (d.arsipKlasifikasi ?? '').toLowerCase();
-        return kode === fk || teks.includes(fk) || kode.includes(fk);
+        return (d.arsipRows ?? []).some((arsip: any) => {
+          const kode = String(arsip.klasifikasiKode ?? '').toLowerCase();
+          const teks = String(arsip.klasifikasi ?? '').toLowerCase();
+          return kode === fk || teks.includes(fk) || kode.includes(fk);
+        });
       });
       total = data.length;
     }
 
-    // Paginate manual jika ada post-filter
-    if (hasSearch || hasKlasifikasiFilter) {
+    if (hasEffectiveStatusFilter || hasNasibFilter) {
+      const todayJakarta = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Jakarta',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(new Date());
+      const hasExpired = (value: unknown) => {
+        if (!value) return false;
+        const date = String(value).slice(0, 10);
+        return /^\d{4}-\d{2}-\d{2}$/.test(date) && date <= todayJakarta;
+      };
+      data = data.flatMap((item: any) => {
+        if (statusFilter === 'DITERIMA' && item.status === 'SELESAI') {
+          return [];
+        }
+        if (
+          ['MENUNGGU_RETENSI_INAKTIF', 'SIAP_PENYUSUTAN'].includes(
+            statusFilter,
+          ) &&
+          item.status !== 'SELESAI'
+        ) {
+          return [];
+        }
+
+        const matchingRows = (item.arsipRows ?? []).filter((archive: any) => {
+          const expired = hasExpired(archive.tanggalRetensiInaktifBerakhir);
+          if (
+            statusFilter === 'MENUNGGU_RETENSI_INAKTIF' &&
+            expired
+          ) {
+            return false;
+          }
+          if (statusFilter === 'SIAP_PENYUSUTAN' && !expired) {
+            return false;
+          }
+
+          if (
+            hasNasibFilter &&
+            String(archive.nasibAkhir ?? '').trim().toUpperCase() !== nasibFilter
+          ) {
+            return false;
+          }
+          return true;
+        });
+
+        return matchingRows.length ? [{ ...item, arsipRows: matchingRows }] : [];
+      });
+      total = data.length;
+    }
+
+    // Paginate manual jika ada filter pasca-query.
+    if (hasPostFilter) {
       const start = (page - 1) * limit;
       data = data.slice(start, start + limit);
     }
@@ -1200,6 +1275,113 @@ export class TuVerifikasiService {
       data,
       meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
     };
+  }
+
+  /** Metadata tabel daftar arsip inaktif, diambil dari master pemberkasan. */
+  private async attachPenataanArsipMetadata(
+    items: TransferActiveToInactiveEntity[],
+  ): Promise<void> {
+    const refsByTransfer = new Map<string, any[]>();
+    const ids = new Set<string>();
+    for (const item of items) {
+      let refs: any = item.arsipIds;
+      if (typeof refs === 'string') {
+        try {
+          refs = JSON.parse(refs);
+        } catch {
+          refs = [];
+        }
+      }
+      if (!Array.isArray(refs) || refs.length === 0) {
+        refs = item.arsipId ? [{ id: item.arsipId, perihal: item.arsipPerihal, kode: item.arsipKode }] : [];
+      }
+      refsByTransfer.set(item.id, refs);
+      for (const ref of refs) {
+        if (ref?.id) ids.add(String(ref.id));
+      }
+    }
+
+    if (ids.size === 0) {
+      for (const item of items) (item as any).arsipRows = [];
+      return;
+    }
+
+    const placeholders = [...ids].map(() => '?').join(',');
+    const metadataRows: any[] = await this.berkasRepo.manager.query(
+      `SELECT
+         b.id,
+         b.kode_berkas AS kodeBerkas,
+         b.klasifikasi AS klasifikasiKode,
+         COALESCE(NULLIF(b.klasifikasi_text, ''), k.klasifikasi_text) AS klasifikasi,
+         COALESCE(NULLIF(b.isi_ringkas, ''), b.judul_berkas) AS uraianInformasi,
+         b.tanggal_dibuat AS tanggalDibuat,
+         b.tanggal_ditutup AS tanggalDitutup,
+         b.lokasi,
+         b.retensi_inaktif_tahun AS retensiInaktifTahun,
+         k.retensi_inaktif_tahun AS retensiInaktifMaster,
+         b.tanggal_retensi_inaktif_berakhir AS tanggalRetensiInaktifBerakhir,
+         b.tindakan_penyusutan_akhir AS nasibAkhir,
+         k.keamanan AS klasifikasiKeamanan,
+         (SELECT COUNT(*) FROM berkas_naskah bn WHERE bn.berkas_id = b.id) AS jumlahBerkas
+       FROM berkas b
+       LEFT JOIN klasifikasi k ON k.klasifikasi = b.klasifikasi
+       WHERE b.id IN (${placeholders})`,
+      [...ids],
+    );
+    const byId = new Map(metadataRows.map((row) => [String(row.id), row]));
+    const formatArchiveCreationDate = (value: unknown): string => {
+      if (!value) return '-';
+      if (value instanceof Date && !Number.isNaN(value.getTime())) {
+        return `${String(value.getDate()).padStart(2, '0')}/${String(value.getMonth() + 1).padStart(2, '0')}/${value.getFullYear()}`;
+      }
+      const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+      return match ? `${match[3]}/${match[2]}/${match[1]}` : String(value);
+    };
+
+    for (const item of items) {
+      const refs = refsByTransfer.get(item.id) ?? [];
+      (item as any).arsipRows = refs.map((ref, index) => {
+        const berkas = byId.get(String(ref.id));
+        const kurunWaktu = formatArchiveCreationDate(berkas?.tanggalDibuat);
+        const retensi = berkas?.retensiInaktifTahun ?? berkas?.retensiInaktifMaster;
+        const tingkatPerkembangan = String(item.keteranganPenataan ?? '')
+          .match(/(?:^|\n)Tingkat Perkembangan: ([^\n]*)/)?.[1];
+        const kondisiMedia = String(item.keteranganPenataan ?? '')
+          .split('\n')
+          .filter((line) => !line.startsWith('Tingkat Perkembangan: '))
+          .join(' ')
+          .trim();
+
+        return {
+          id: String(ref.id ?? item.arsipId),
+          urutan: index + 1,
+          kodeBerkas: berkas?.kodeBerkas ?? ref.kode ?? item.arsipKode ?? '-',
+          klasifikasiKode: berkas?.klasifikasiKode ?? '-',
+          klasifikasi: berkas?.klasifikasi ?? '-',
+          uraianInformasi: berkas?.uraianInformasi ?? ref.perihal ?? item.arsipPerihal ?? '-',
+          kurunWaktu,
+          jumlahBerkas: berkas ? Number(berkas.jumlahBerkas) : null,
+          tingkatPerkembangan: tingkatPerkembangan || '-',
+          lokasiSimpan: item.labelPenataan || item.lokasiPenataan || berkas?.lokasi || '-',
+          klasifikasiKeamanan: berkas?.klasifikasiKeamanan ?? '-',
+          retensiArsipInaktif: retensi != null ? `${retensi} tahun` : '-',
+          tanggalRetensiInaktifBerakhir:
+            berkas?.tanggalRetensiInaktifBerakhir ?? null,
+          nasibAkhir: berkas?.nasibAkhir ?? '-',
+          keterangan: [
+            kondisiMedia || null,
+            item.beritaAcaraNomor
+              ? `No. BA: ${item.beritaAcaraNomor}`
+              : item.nomorUsulan
+                ? `No. BA: BA/${item.nomorUsulan}`
+                : null,
+          ].filter(Boolean).join(' | ') || '-',
+          transferId: item.id,
+          nomorUsulan: item.nomorUsulan,
+          status: item.status,
+        };
+      });
+    }
   }
 
   /** Upload foto lampiran penataan arsip (Max 5MB, image only).

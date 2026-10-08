@@ -430,4 +430,22 @@ export class TransferActiveToInactiveController {
     });
     response.send(buffer);
   }
+
+  /** Preview satu PDF lampiran penataan: BAC + daftar berkas + daftar isi. */
+  @Get(':id/lampiran-penataan.pdf')
+  @SkipTransform()
+  async previewPenataanLampiranPdf(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+    @Res() response: Response,
+  ): Promise<void> {
+    const { buffer, fileName } = await this.service.getPenataanLampiranPdf(id, user);
+    response.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `inline; filename="${fileName}"`,
+      'Content-Length': String(buffer.length),
+      'Cache-Control': 'private, no-store',
+    });
+    response.send(buffer);
+  }
 }
