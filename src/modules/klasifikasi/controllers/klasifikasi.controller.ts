@@ -27,6 +27,21 @@ export class KlasifikasiController {
     return this.klasifikasiService.findByCode(company, kode);
   }
 
+  @Get('options')
+  findOptions(
+    @Query('company') company?: string,
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.klasifikasiService.findOptions(
+      company,
+      search,
+      Number(page),
+      Number(limit),
+    );
+  }
+
   @Post()
   @RequirePermission('master-data', 'create')
   create(@Body() createKlasifikasiDto: CreateKlasifikasiDto) {
