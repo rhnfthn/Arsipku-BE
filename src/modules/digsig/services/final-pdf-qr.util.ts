@@ -15,3 +15,11 @@ export function finalPdfQrUrl(id: string, nomor: string): string {
   ).replace(/\/+$/, '');
   return `${base}/digsig/pdf/${encodeURIComponent(id)}?ref=${finalPdfQrReference(id, nomor)}`;
 }
+
+/** Login middleware preserves this destination through the existing SSO flow. */
+export function finalPdfQrViewerUrl(id: string, reference: string): string {
+  const base = (
+    process.env.QR_PDF_APP_URL || 'https://new-arsipku.airnavindonesia.co.id'
+  ).replace(/\/+$/, '');
+  return `${base}/korespondensi/pdf/${encodeURIComponent(id)}?ref=${encodeURIComponent(reference || '')}`;
+}

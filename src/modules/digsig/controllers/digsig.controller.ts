@@ -1,7 +1,9 @@
+import { finalPdfQrViewerUrl } from '../services/final-pdf-qr.util';
 import {
   Controller,
   StreamableFile,
   Header,
+  Redirect,
   Post,
   Get,
   Body,
@@ -304,12 +306,25 @@ export class DigsigController {
   // VERIFICATION ENDPOINTS
   // ============================================
 
-  /** Scan a document QR to open its current final PDF without login. */
+  /** Existing QR links enter the authenticated frontend viewer. */
   @Public()
   @Get('pdf/:id')
   @SkipTransform()
+  @Redirect()
   @Header('Cache-Control', 'no-store')
-  async openFinalPdf(
+  openFinalPdf(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Query('ref') reference: string,
+  ) {
+    return { url: finalPdfQrViewerUrl(id, reference), statusCode: 302 };
+  }
+
+  /** PDF bytes require an authenticated ArsipKu request. */
+  @Get('pdf/:id/content')
+  @SkipTransform()
+  @RequirePermission('naskah-dinas', 'read-detail')
+  @Header('Cache-Control', 'no-store')
+  async getFinalPdfContent(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Query('ref') reference: string,
   ): Promise<StreamableFile> {
