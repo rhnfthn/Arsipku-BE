@@ -33,6 +33,7 @@ export async function portalCorrespondenceQrHtml(
     'https://arsipku.airnavindonesia.co.id/verify'
   ).replace(/\/$/, '');
   const image = await qrCodeService.generateQRCodeBase64({
+    document_id: idNaskah,
     signature_id: signatureId,
     document_number: nomor,
     signed_at: '', // Signing has not happened; completion supplies the actual timestamp.
@@ -41,5 +42,5 @@ export async function portalCorrespondenceQrHtml(
     document_type: jenis,
     verification_url: `${verificationBase}/${signatureId}`,
   });
-  return `<img src="${image}" style="width:80px;height:80px;" alt="QR verifikasi TTE" />`;
+  return `<img src="${image}" style="width:80px;height:80px;" alt="QR PDF final" />`;
 }

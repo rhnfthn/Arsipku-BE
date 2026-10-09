@@ -2726,6 +2726,7 @@ export class SuratDinasInternalService {
         verificationUrl = `${VERIFICATION_BASE_URL}/${signatureId}`;
 
         const qrData: QRCodeData = {
+          document_id: naskahId,
           signature_id:
             dto.sign_option === SignOption.DIGSIG ? signatureId : '',
           document_number: nomorSurat,
@@ -3752,6 +3753,7 @@ export class SuratDinasInternalService {
           const verificationUrl = `${VERIFICATION_BASE_URL}/${signatureId}`;
 
           const qrData: QRCodeData = {
+            document_id: naskahId,
             signature_id:
               dto.sign_option === SignOption.DIGSIG ? signatureId : '',
             document_number: nomorSurat,

@@ -21,6 +21,7 @@ describe('Client QR for Portal correspondence', () => {
       expect(html).not.toContain('TTE_');
       expect(generateQRCodeBase64).toHaveBeenCalledWith(
         expect.objectContaining({
+          document_id: 'document',
           signed_at: '',
           verification_url: expect.stringContaining(
             portalCorrespondenceSignatureId('document', '001/TNG/X/2026'),
