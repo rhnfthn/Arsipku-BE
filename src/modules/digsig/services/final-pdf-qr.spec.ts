@@ -1,3 +1,6 @@
+import passport from 'passport';
+import { Strategy, ExtractJwt } from 'passport-jwt';
+import { sign } from 'jsonwebtoken';
 import { Reflector } from '@nestjs/core';
 import { TransformResponseInterceptor } from '../../../common/interceptors/transform-response.interceptor';
 import { Test } from '@nestjs/testing';
@@ -7,7 +10,11 @@ import { DigsigController } from '../controllers/digsig.controller';
 import { StorageService } from '../../storage/services/storage.service';
 import { NotFoundException } from '@nestjs/common';
 import { DigsigService } from './digsig.service';
-import { finalPdfQrReference, finalPdfQrUrl } from './final-pdf-qr.util';
+import {
+  finalPdfQrReference,
+  finalPdfQrUrl,
+  finalPdfQrViewerUrl,
+} from './final-pdf-qr.util';
 import { QRCodeService } from './qrcode.service';
 import * as QRCode from 'qrcode';
 
@@ -101,9 +108,21 @@ describe('Final PDF QR destination', () => {
   });
 });
 
-// Exercise the public HTTP route as a scanner browser, without an Authorization header.
+// Exercise QR login redirection and the protected PDF API with the real JWT guard.
 describe('Scanned QR PDF endpoint', () => {
-  it('serves the PDF inline without login and disables caching', async () => {
+  it('redirects scans to login and serves PDF bytes only with a valid JWT', async () => {
+    const secret = 'qr-http-test-secret';
+    passport.use(
+      'jwt',
+      new Strategy(
+        {
+          jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+          secretOrKey: secret,
+        },
+        (_payload: unknown, done) => done(null, { persnum: 1 }),
+      ),
+    );
+    const token = sign({ persnum: 1 }, secret, { expiresIn: '1m' });
     const state = setup();
     const module = await Test.createTestingModule({
       imports: [ThrottlerModule.forRoot([{ ttl: 60000, limit: 10 }])],
@@ -121,6 +140,26 @@ describe('Scanned QR PDF endpoint', () => {
     try {
       await request(app.getHttpServer())
         .get(`/digsig/pdf/${id}?ref=${finalPdfQrReference(id, nomor)}`)
+        .expect(302)
+        .expect(
+          'Location',
+          finalPdfQrViewerUrl(id, finalPdfQrReference(id, nomor)),
+        );
+      expect(state.storage.getFile).not.toHaveBeenCalled();
+      await request(app.getHttpServer())
+        .get(`/digsig/pdf/${id}/content?ref=${finalPdfQrReference(id, nomor)}`)
+        .expect(401);
+      await request(app.getHttpServer())
+        .get(`/digsig/pdf/${id}/content?ref=${finalPdfQrReference(id, nomor)}`)
+        .set(
+          'Authorization',
+          `Bearer ${sign({ persnum: 1 }, secret, { expiresIn: -1 })}`,
+        )
+        .expect(401);
+      expect(state.storage.getFile).not.toHaveBeenCalled();
+      await request(app.getHttpServer())
+        .get(`/digsig/pdf/${id}/content?ref=${finalPdfQrReference(id, nomor)}`)
+        .set('Authorization', `Bearer ${token}`)
         .expect(200)
         .expect('Content-Type', 'application/pdf')
         .expect('Content-Disposition', 'inline; filename="naskah-final.pdf"')
@@ -129,10 +168,12 @@ describe('Scanned QR PDF endpoint', () => {
           expect(response.body).toEqual(Buffer.from('%PDF-final'));
         });
       await request(app.getHttpServer())
-        .get(`/digsig/pdf/${id}?ref=incorrect`)
+        .get(`/digsig/pdf/${id}/content?ref=incorrect`)
+        .set('Authorization', `Bearer ${token}`)
         .expect(404);
     } finally {
       await app.close();
+      passport.unuse('jwt');
     }
   });
 });
