@@ -263,7 +263,7 @@ export class GeneratePdfService implements OnModuleInit {
       // Build address list HTML - HANYA tampilkan field yang > 5
       let tertujuListHtml = '';
       if (tertujuExceedsLimit) {
-        tertujuListHtml = "<ol style='margin-top:0px;margin-left:0px;'>";
+        tertujuListHtml = "<ol style='margin:0;padding-left:30px;'>";
         tertujuArray.forEach((item) => {
           tertujuListHtml += `<li>${item}</li>`;
         });
@@ -272,7 +272,7 @@ export class GeneratePdfService implements OnModuleInit {
 
       let tembusanListHtml = '';
       if (tembusanExceedsLimit) {
-        tembusanListHtml = "<ol style='margin-top:0px;margin-left:0px;'>";
+        tembusanListHtml = "<ol style='margin:0;padding-left:30px;'>";
         tembusanArray.forEach((item) => {
           tembusanListHtml += `<li>${item}</li>`;
         });
@@ -280,25 +280,18 @@ export class GeneratePdfService implements OnModuleInit {
       }
 
       addressPageContent = `
-            <div style="page-break-before: always; padding-top: 20px; font-family: 'Times New Roman', Times, serif;">
-                <table style="margin: 0 auto; width: 90%; font-family: 'Times New Roman', Times, serif; margin-bottom: 30px;">
-                    <tr>
-                        <td style="width: 50%;">&nbsp;</td>
-                        <td style="width: 50%; text-align: right; vertical-align: top;">
-                            <div style="display: inline-block; text-align: left;">
+            <div style="page-break-before: always; padding-top: 0; font-size: 12pt; line-height: 1.1; font-family: 'Times New Roman', Times, serif;">
+                <div style="text-align: right;">
                                 Lampiran Surat<br>
                                 Nomor Surat : ${nomor}<br>
                                 Tanggal Surat : ${tanggal}
                             </div>
-                        </td>
-                    </tr>
-                </table>
-                <table style="margin: 0 auto; width: 90%; font-family: 'Times New Roman', Times, serif;">
+                <table style="margin: 0 auto; width: 100%; font-family: 'Times New Roman', Times, serif;">
                     ${
                       tertujuExceedsLimit
                         ? `<tr>
                         <td style="vertical-align:top; padding-bottom:20px;">
-                            <b>KEPADA YTH :</b><br>
+                            KEPADA YTH :<br>
                             ${tertujuListHtml}
                         </td>
                     </tr>`
@@ -308,7 +301,7 @@ export class GeneratePdfService implements OnModuleInit {
                       tembusanExceedsLimit
                         ? `<tr>
                         <td style="vertical-align:top;">
-                            <b>TEMBUSAN :</b><br>
+                            TEMBUSAN :<br>
                             ${tembusanListHtml}
                         </td>
                     </tr>`
