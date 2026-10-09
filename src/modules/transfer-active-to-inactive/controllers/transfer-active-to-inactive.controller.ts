@@ -85,6 +85,19 @@ export class TransferActiveToInactiveController {
     };
   }
 
+  /** Detail BAC hanya untuk pejabat yang ditetapkan sebagai penandatangan. */
+  @Get(':id/signing-detail')
+  async getSigningDetail(
+    @Param('id') id: string,
+    @Query('signer') signerType: 'pihak_pertama' | 'pihak_kedua' = 'pihak_pertama',
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return {
+      success: true,
+      data: await this.service.getSigningDetail(id, user, signerType),
+    };
+  }
+
   /** Daftar BAC yang diterima user sebagai tembusan (read-only). */
   @Get('tembusan-list')
   async getTembusanList(@CurrentUser() user: JwtPayload) {
