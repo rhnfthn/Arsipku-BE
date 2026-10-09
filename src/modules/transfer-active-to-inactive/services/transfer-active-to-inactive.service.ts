@@ -237,6 +237,7 @@ export class TransferActiveToInactiveService {
         firstAtasan.positionId != null ? String(firstAtasan.positionId) : null,
         Number(firstAtasan.persnum),
         'Verifikasi Usulan Pemindahan Arsip Aktif ke Inaktif',
+        'OPEN_TRANSFER_APPROVAL',
       );
     }
     return saved;
@@ -378,6 +379,7 @@ export class TransferActiveToInactiveService {
             : null,
           currentLevel.atasanPersnum,
           'Verifikasi Usulan Pemindahan Arsip Aktif ke Inaktif',
+          'OPEN_TRANSFER_APPROVAL',
         );
       }
     }
@@ -602,21 +604,33 @@ export class TransferActiveToInactiveService {
     }
 
     // Ambil klasifikasi berkas untuk usulan (lookup by arsipId)
-    const usulanArsipIds = usulanList.map((u) => u.arsipId);
+    // Data lama/multi-arsip dapat memiliki referensi yang lebih lengkap pada
+    // arsip_ids daripada arsip_id yang hanya menyimpan arsip pertama.
+    const usulanArsipIds = Array.from(
+      new Set(
+        usulanList.flatMap((u) => [
+          u.arsipId,
+          ...(Array.isArray(u.arsipIds)
+            ? u.arsipIds.map((arsip) => arsip?.id)
+            : []),
+        ]).filter((id): id is string => typeof id === 'string' && id.length > 0),
+      ),
+    );
     const berkasKlasifikasiMap = new Map<
       string,
-      { kode: string; teks: string }
+      { kode: string; teks: string; lokasiFisik: string | null }
     >();
     if (usulanArsipIds.length > 0) {
       const berkasForUsulan = await this.berkasRepo
         .createQueryBuilder('b')
-        .select(['b.id', 'b.klasifikasi', 'b.klasifikasiTeks'])
+        .select(['b.id', 'b.klasifikasi', 'b.klasifikasiTeks', 'b.lokasi'])
         .where('b.id IN (:...ids)', { ids: usulanArsipIds })
         .getMany();
       for (const b of berkasForUsulan) {
         berkasKlasifikasiMap.set(b.id, {
           kode: b.klasifikasi ?? '',
           teks: b.klasifikasiTeks ?? b.klasifikasi ?? '-',
+          lokasiFisik: b.lokasi ?? null,
         });
       }
     }
@@ -692,6 +706,7 @@ export class TransferActiveToInactiveService {
 
     // Usulan yang sudah dibuat
     for (const u of usulanList) {
+      const arsipUtamaId = u.arsipIds?.[0]?.id || u.arsipId;
       if (search) {
         const q = search.toLowerCase();
         const match =
@@ -704,7 +719,7 @@ export class TransferActiveToInactiveService {
       if (filter?.status && u.status !== filter.status) continue;
       if (filterKlasifikasi) {
         const fk = filterKlasifikasi.toLowerCase();
-        const entry = berkasKlasifikasiMap.get(u.arsipId);
+        const entry = berkasKlasifikasiMap.get(arsipUtamaId);
         const kode = (entry?.kode ?? '').toLowerCase();
         const teks = (entry?.teks ?? '').toLowerCase();
         if (kode !== fk && !teks.includes(fk) && !kode.includes(fk)) continue;
@@ -722,7 +737,8 @@ export class TransferActiveToInactiveService {
         nomorUsulan: u.nomorUsulan,
         kodeBerkas: u.arsipKode,
         perihal: u.arsipPerihal,
-        klasifikasi: berkasKlasifikasiMap.get(u.arsipId)?.teks ?? null,
+        klasifikasi: berkasKlasifikasiMap.get(arsipUtamaId)?.teks ?? null,
+        lokasiFisik: berkasKlasifikasiMap.get(arsipUtamaId)?.lokasiFisik ?? null,
         tanggalRetensiAktifHabis: u.tanggalRetensiAktifHabis
           ? new Date(u.tanggalRetensiAktifHabis).toISOString().split('T')[0]
           : null,
@@ -805,7 +821,48 @@ export class TransferActiveToInactiveService {
       .orderBy('t.tgl_usulan', 'DESC')
       .getMany();
 
+    const arsipIds = Array.from(
+      new Set(
+        items
+          .flatMap((item) => [
+            item.arsipId,
+            ...(Array.isArray(item.arsipIds)
+              ? item.arsipIds.map((archive) => archive?.id)
+              : []),
+          ])
+          .filter((id): id is string => typeof id === 'string' && id.length > 0),
+      ),
+    );
+    const metadataByArsipId = new Map<
+      string,
+      { klasifikasi: string | null; klasifikasiKode: string | null; lokasi: string | null; retensiHabis: string | null }
+    >();
+
+    if (arsipIds.length > 0) {
+      const berkasList = await this.berkasRepo
+        .createQueryBuilder('b')
+        .select([
+          'b.id',
+          'b.klasifikasiTeks',
+          'b.klasifikasi',
+          'b.lokasi',
+          'b.tanggalRetensiAktifBerakhir',
+        ])
+        .where('b.id IN (:...ids)', { ids: arsipIds })
+        .getMany();
+
+      for (const berkas of berkasList) {
+        metadataByArsipId.set(berkas.id, {
+          klasifikasi: berkas.klasifikasiTeks ?? berkas.klasifikasi ?? null,
+          klasifikasiKode: berkas.klasifikasi ?? null,
+          lokasi: berkas.lokasi ?? null,
+          retensiHabis: berkas.tanggalRetensiAktifBerakhir ?? null,
+        });
+      }
+    }
+
     return items.map((item) => {
+      const metadata = metadataByArsipId.get(item.arsipIds?.[0]?.id ?? item.arsipId);
       const isPihakKedua =
         Number(item.bacPihakKeduaPersnum) === signerPersnum &&
         !!item.bacSignedAt;
@@ -817,6 +874,12 @@ export class TransferActiveToInactiveService {
       nomorUsulan: item.nomorUsulan,
       arsipPerihal: item.arsipPerihal,
       arsipKode: item.arsipKode,
+      arsipKlasifikasi: metadata?.klasifikasi ?? null,
+      arsipKlasifikasiKode: metadata?.klasifikasiKode ?? null,
+      arsipLokasiFisik: metadata?.lokasi ?? null,
+      tanggalRetensiAktifHabis:
+        metadata?.retensiHabis ?? item.tanggalRetensiAktifHabis ?? null,
+      updatedAt: item.updatedAt,
       tanggalUsulan: item.tanggalUsulan,
       status: item.status,
       beritaAcaraNomor: item.beritaAcaraNomor,
@@ -836,6 +899,50 @@ export class TransferActiveToInactiveService {
         : 0,
       };
     });
+  }
+
+  async getSigningDetail(
+    id: string,
+    user: any,
+    signerType: 'pihak_pertama' | 'pihak_kedua' = 'pihak_pertama',
+  ) {
+    if (!isEvpOrAbovePosition(user)) {
+      throw new ForbiddenException(
+        'Detail penandatanganan BAC hanya tersedia untuk EVP dan jabatan di atasnya',
+      );
+    }
+    if (signerType !== 'pihak_pertama' && signerType !== 'pihak_kedua') {
+      throw new ForbiddenException('Jenis penandatangan BAC tidak valid');
+    }
+
+    const transfer = await this.repo.findOne({ where: { id } });
+    if (!transfer) {
+      throw new NotFoundException('Usulan pemindahan arsip tidak ditemukan');
+    }
+
+    const persnum = Number(user?.persnum);
+    const firstPartyStatuses = [
+      TransferActiveToInactiveStatus.USUL_PINDAH_DIKIRIM,
+      TransferActiveToInactiveStatus.SIAPKAN_BERKAS_FISIK,
+    ];
+    const isAssignedFirstParty =
+      signerType === 'pihak_pertama' &&
+      Number(transfer.bacPihakPertamaPersnum) === persnum &&
+      (Boolean(transfer.bacSignedAt) || firstPartyStatuses.includes(transfer.status));
+    const isAssignedSecondParty =
+      signerType === 'pihak_kedua' &&
+      Number(transfer.bacPihakKeduaPersnum) === persnum &&
+      Boolean(transfer.bacSignedAt) &&
+      (Boolean(transfer.bacPihakKeduaSignedAt) ||
+        transfer.status === TransferActiveToInactiveStatus.MENUNGGU_TTD_PIHAK_KEDUA);
+
+    if (!Number.isFinite(persnum) || (!isAssignedFirstParty && !isAssignedSecondParty)) {
+      throw new ForbiddenException(
+        'Anda bukan penandatangan BAC yang ditugaskan untuk usulan ini',
+      );
+    }
+
+    return this.findOne(id, user);
   }
 
   /**
@@ -1002,6 +1109,13 @@ export class TransferActiveToInactiveService {
               AND active_level.atasan_persnum = :currentPersnum
               AND active_level.urutan = t.current_approval_level
           )
+          OR EXISTS (
+            SELECT 1
+            FROM transfer_approval_levels approved_level
+            WHERE approved_level.transfer_id = t.id
+              AND approved_level.atasan_persnum = :currentPersnum
+              AND approved_level.status = 'DISETUJUI'
+          )
           OR t.sekretaris_persnum = :secretaryPersnum
         )`,
         {
@@ -1013,12 +1127,21 @@ export class TransferActiveToInactiveService {
       // Atasan Managerial: tampilkan usulan yang SUDAH giliran dia
       // (currentApprovalLevel = urutan dia di transfer_approval_levels)
       qb.andWhere(
-        `EXISTS (
-          SELECT 1
-          FROM transfer_approval_levels active_level
-          WHERE active_level.transfer_id = t.id
-            AND active_level.atasan_persnum = :currentPersnum
-            AND active_level.urutan = t.current_approval_level
+        `(
+          EXISTS (
+            SELECT 1
+            FROM transfer_approval_levels active_level
+            WHERE active_level.transfer_id = t.id
+              AND active_level.atasan_persnum = :currentPersnum
+              AND active_level.urutan = t.current_approval_level
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM transfer_approval_levels approved_level
+            WHERE approved_level.transfer_id = t.id
+              AND approved_level.atasan_persnum = :currentPersnum
+              AND approved_level.status = 'DISETUJUI'
+          )
         )`,
         { currentPersnum: Number(user.persnum) },
       );
@@ -1072,6 +1195,8 @@ export class TransferActiveToInactiveService {
           'b.id',
           'b.klasifikasi',
           'b.klasifikasiTeks',
+          'b.lokasi',
+          'b.tanggalRetensiAktifBerakhir',
           'b.tanggalRetensiInaktifBerakhir',
         ])
         .where('b.id IN (:...ids)', { ids: arsipIds })
@@ -1081,6 +1206,8 @@ export class TransferActiveToInactiveService {
         {
           kode: string;
           teks: string;
+          lokasiFisik: string | null;
+          tanggalRetensiAktifBerakhir: Date | string | null;
           tanggalRetensiInaktifBerakhir: Date | string | null;
         }
       >();
@@ -1088,6 +1215,9 @@ export class TransferActiveToInactiveService {
         klasifikasiMap.set(b.id, {
           kode: b.klasifikasi ?? '',
           teks: b.klasifikasiTeks ?? b.klasifikasi ?? '-',
+          lokasiFisik: b.lokasi ?? null,
+          tanggalRetensiAktifBerakhir:
+            b.tanggalRetensiAktifBerakhir ?? null,
           tanggalRetensiInaktifBerakhir:
             b.tanggalRetensiInaktifBerakhir ?? null,
         });
@@ -1096,6 +1226,9 @@ export class TransferActiveToInactiveService {
         const k = klasifikasiMap.get(d.arsipId);
         (d as any).arsipKlasifikasi = k?.teks ?? null;
         (d as any).arsipKlasifikasiKode = k?.kode ?? null;
+        (d as any).arsipLokasiFisik = k?.lokasiFisik ?? null;
+        (d as any).tanggalRetensiAktifHabis =
+          k?.tanggalRetensiAktifBerakhir ?? d.tanggalRetensiAktifHabis ?? null;
         (d as any).arsipRows = (Array.isArray(d.arsipIds) ? d.arsipIds : []).map(
           (archive) => {
             const metadata = klasifikasiMap.get(archive.id);
@@ -1103,6 +1236,9 @@ export class TransferActiveToInactiveService {
               ...archive,
               klasifikasi: metadata?.kode ?? '',
               klasifikasiTeks: metadata?.teks ?? '',
+              lokasiFisik: metadata?.lokasiFisik ?? null,
+              tanggalRetensiAktifBerakhir:
+                metadata?.tanggalRetensiAktifBerakhir ?? null,
               tanggalRetensiInaktifBerakhir:
                 metadata?.tanggalRetensiInaktifBerakhir ?? null,
             };
@@ -1170,7 +1306,9 @@ export class TransferActiveToInactiveService {
       const isAtasan = levels.some(
         (l) => l.atasanPersnum === Number(user.persnum),
       );
-      const isBacSigner = item.bacPihakPertamaPersnum === Number(user.persnum);
+      const isBacSigner =
+        item.bacPihakPertamaPersnum === Number(user.persnum) ||
+        item.bacPihakKeduaPersnum === Number(user.persnum);
       const isBacCopy = Array.isArray(item.bacTembusan)
         ? item.bacTembusan.some(
             (t) => Number(t?.persnum) === Number(user.persnum),
@@ -1229,6 +1367,7 @@ export class TransferActiveToInactiveService {
           : null,
         currentLevel.atasanPersnum,
         'Verifikasi Usulan Pemindahan Arsip Aktif ke Inaktif',
+        'OPEN_TRANSFER_APPROVAL',
       );
     }
     return saved;
@@ -1331,6 +1470,7 @@ export class TransferActiveToInactiveService {
           : null,
         nextLevel.atasanPersnum,
         `Verifikasi Usulan (Tahap ${nextLevel.urutan} dari ${item.totalApprovalLevels})`,
+        'OPEN_TRANSFER_APPROVAL',
       );
       // Notifikasi sekretaris
       await this.notify(
@@ -2769,6 +2909,7 @@ export class TransferActiveToInactiveService {
         'b.lokasi',
         'b.retensiAktifTahun',
         'b.retensiInaktifTahun',
+        'b.tanggalRetensiAktifBerakhir',
         'b.tanggalRetensiInaktifBerakhir',
         'b.tanggalDibuat',
         'b.tanggalDitutup',
@@ -2911,6 +3052,10 @@ export class TransferActiveToInactiveService {
           berkas?.retensiAktifTahun != null
             ? `${berkas.retensiAktifTahun} tahun`
             : '-',
+        tanggalRetensiAktifBerakhir:
+          berkas?.tanggalRetensiAktifBerakhir ??
+          a.tanggalRetensiHabis ??
+          (a.id === item.arsipId ? item.tanggalRetensiAktifHabis : null),
       };
     });
 
@@ -2959,9 +3104,12 @@ export class TransferActiveToInactiveService {
     user: any,
   ): Promise<{ buffer: Buffer; fileName: string }> {
     const item = await this.findOne(id, user);
-    if (item.status !== TransferActiveToInactiveStatus.SELESAI) {
+    if (
+      item.status !== TransferActiveToInactiveStatus.ARSIP_INAKTIF_DITERIMA &&
+      item.status !== TransferActiveToInactiveStatus.SELESAI
+    ) {
       throw new BadRequestException(
-        'Lampiran penataan tersedia setelah penataan arsip selesai',
+        'Lampiran penataan tersedia setelah arsip diterima oleh Unit Dokumen',
       );
     }
 
