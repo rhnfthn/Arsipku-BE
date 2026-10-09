@@ -872,8 +872,8 @@ export class DigsigService {
     if (alreadySigned) {
       throw new BadRequestException('Berita Acara ini sudah ditandatangani');
     }
-    if (assignedPersnum && Number(assignedPersnum) !== Number(user.persnum)) {
-      throw new BadRequestException(
+    if (!assignedPersnum || Number(assignedPersnum) !== Number(user.persnum)) {
+      throw new ForbiddenException(
         `Hanya pejabat ${isPihakKedua ? 'pihak kedua' : 'pihak pertama'} BAC yang dapat menandatangani berita acara ini`,
       );
     }
@@ -1058,8 +1058,8 @@ export class DigsigService {
     if (isPihakKedua && !assignedPersnum) {
       throw new BadRequestException('Pejabat pihak kedua BAC belum ditetapkan');
     }
-    if (assignedPersnum && Number(assignedPersnum) !== Number(user.persnum)) {
-      throw new BadRequestException(
+    if (!assignedPersnum || Number(assignedPersnum) !== Number(user.persnum)) {
+      throw new ForbiddenException(
         `Hanya pejabat ${isPihakKedua ? 'pihak kedua' : 'pihak pertama'} BAC yang dapat menandatangani berita acara ini`,
       );
     }
@@ -1317,8 +1317,8 @@ export class DigsigService {
     if (isPihakKedua && !assignedPersnum) {
       throw new BadRequestException('Pejabat pihak kedua BAC belum ditetapkan');
     }
-    if (assignedPersnum && Number(assignedPersnum) !== Number(user.persnum)) {
-      throw new BadRequestException(
+    if (!assignedPersnum || Number(assignedPersnum) !== Number(user.persnum)) {
+      throw new ForbiddenException(
         `Hanya pejabat ${isPihakKedua ? 'pihak kedua' : 'pihak pertama'} BAC yang dapat menandatangani berita acara ini`,
       );
     }
