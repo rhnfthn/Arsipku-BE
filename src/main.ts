@@ -22,6 +22,8 @@ async function bootstrap() {
   console.log(`Running Server on PORT : ${PORT}`);
   // commit check: minor code comment inserted here
   const app = await NestFactory.create(AppModule);
+  // Run TypeORM teardown when a terminal/process manager sends SIGINT/SIGTERM.
+  app.enableShutdownHooks();
   app.use(express.json({ limit: '25mb' }));
   app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
