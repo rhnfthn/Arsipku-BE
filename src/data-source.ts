@@ -1,5 +1,6 @@
 import { DataSource } from 'typeorm';
 import { config } from 'dotenv';
+import { getPoolSize, mysqlPoolOptions } from './config/mysql-pool.config';
 
 config();
 
@@ -14,4 +15,5 @@ export default new DataSource({
   migrations: [__dirname + '/migrations/*{.ts,.js}'],
   synchronize: false,
   migrationsRun: false,
+  extra: mysqlPoolOptions(getPoolSize(process.env.DB_POOL_SIZE, 5)),
 });

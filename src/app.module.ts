@@ -92,6 +92,7 @@ import { TuVerifikasiModule } from './modules/tu-verifikasi/tu-verifikasi.module
 import { PenyusutanModule } from './modules/penyusutan/penyusutan.module';
 import { ArsipModule } from './modules/arsip/arsip.module';
 import { TugasModule } from './modules/tugas/tugas.module';
+import { getPoolSize, mysqlPoolOptions } from './config/mysql-pool.config';
 
 /**
  * Keep the total number of MySQL connections predictable.
@@ -102,23 +103,6 @@ import { TugasModule } from './modules/tugas/tugas.module';
  * concurrent dashboard queries can wait in the pool queue instead of
  * exhausting MySQL's max_connections.
  */
-function getPoolSize(value: string | undefined, fallback: number): number {
-  const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
-}
-
-function mysqlPoolOptions(connectionLimit: number) {
-  return {
-    connectionLimit,
-    maxIdle: connectionLimit,
-    idleTimeout: 60_000,
-    waitForConnections: true,
-    queueLimit: 0,
-    enableKeepAlive: true,
-    keepAliveInitialDelay: 0,
-  };
-}
-
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
