@@ -1,4 +1,5 @@
 import { Test } from '@nestjs/testing';
+import { ForbiddenException } from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { TransferActiveToInactiveService } from './transfer-active-to-inactive.service';
 import { TransferActiveToInactiveEntity } from '../entities/transfer-active-to-inactive.entity';
@@ -94,6 +95,86 @@ describe('TransferActiveToInactiveService - syncDraftUsulanOtomatis', () => {
     };
     return qb;
   };
+
+  it('getSigningList melengkapi metadata berkas untuk kolom tabel Penandatanganan', async () => {
+    repo.createQueryBuilder.mockReturnValue(
+      chain([
+        {
+          id: 'transfer-1',
+          nomorUsulan: 'UPAI/001/2026',
+          arsipId: 'berkas-1',
+          arsipIds: [{ id: 'berkas-1' }],
+          arsipPerihal: 'Nama arsip',
+          arsipKode: 'ARK-001',
+          tanggalRetensiAktifHabis: null,
+          updatedAt: new Date('2026-10-09T00:00:00Z'),
+          bacPihakPertamaPersnum: 777,
+          bacSignedAt: null,
+          status: 'USUL_PINDAH_DIKIRIM',
+        },
+      ]),
+    );
+    berkasRepo.createQueryBuilder.mockReturnValue(
+      chain([
+        {
+          id: 'berkas-1',
+          klasifikasi: 'TIK.01.01',
+          klasifikasiTeks: 'Pengembangan Sistem Informasi',
+          lokasi: 'Rak B',
+          tanggalRetensiAktifBerakhir: '2026-10-08',
+        },
+      ]),
+    );
+
+    const rows = await service.getSigningList({
+      persnum: 777,
+      positionText: 'EVP Technology',
+    });
+
+    expect(rows[0]).toMatchObject({
+      arsipKlasifikasi: 'Pengembangan Sistem Informasi',
+      arsipKlasifikasiKode: 'TIK.01.01',
+      arsipLokasiFisik: 'Rak B',
+      tanggalRetensiAktifHabis: '2026-10-08',
+      updatedAt: new Date('2026-10-09T00:00:00Z'),
+    });
+  });
+
+  it('getSigningDetail hanya mengembalikan detail untuk penandatangan yang ditugaskan', async () => {
+    const transfer = {
+      id: 'transfer-signing-1',
+      status: 'USUL_PINDAH_DIKIRIM',
+      bacPihakPertamaPersnum: 777,
+      bacPihakKeduaPersnum: 888,
+      bacSignedAt: null,
+      bacPihakKeduaSignedAt: null,
+    };
+    repo.findOne.mockResolvedValue(transfer);
+    const findOneSpy = jest
+      .spyOn(service, 'findOne')
+      .mockResolvedValue(transfer as any);
+
+    await expect(
+      service.getSigningDetail(
+        transfer.id,
+        { persnum: 777, positionText: 'EVP Technology' },
+        'pihak_pertama',
+      ),
+    ).resolves.toBe(transfer);
+    expect(findOneSpy).toHaveBeenCalledWith(transfer.id, {
+      persnum: 777,
+      positionText: 'EVP Technology',
+    });
+
+    await expect(
+      service.getSigningDetail(
+        transfer.id,
+        { persnum: 999, positionText: 'EVP Technology' },
+        'pihak_pertama',
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(findOneSpy).toHaveBeenCalledTimes(1);
+  });
 
   it('berkas closed_retensi_aktif tanpa usulan → dibuatkan usulan DRAFT otomatis', async () => {
     const berkas = {
@@ -270,6 +351,9 @@ describe('TransferActiveToInactiveService - syncDraftUsulanOtomatis', () => {
     );
     expect(qb.andWhere.mock.calls[0][0]).toContain(
       'active_level.urutan = t.current_approval_level',
+    );
+    expect(qb.andWhere.mock.calls[0][0]).toContain(
+      "approved_level.status = 'DISETUJUI'",
     );
     expect(levelRepo.createQueryBuilder).not.toHaveBeenCalled();
   });
