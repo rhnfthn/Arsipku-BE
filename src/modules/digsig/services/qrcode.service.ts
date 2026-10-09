@@ -3,8 +3,10 @@ import * as QRCode from 'qrcode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { createCanvas, loadImage } from 'canvas';
+import { finalPdfQrUrl } from './final-pdf-qr.util';
 
 export interface QRCodeData {
+  document_id?: string;
   signature_id: string;
   document_number: string;
   signed_at: string;
@@ -51,147 +53,69 @@ export class QRCodeService {
    * Generate QR Code dengan logo AirNav di tengah sebagai base64 data URL
    */
   async generateQRCodeBase64(data: QRCodeData): Promise<string> {
-    // Data yang akan di-encode dalam QR code (URL ke PDF)
-    const qrContent = this.formatQRContent(data);
-
-    // Generate QR code sebagai data URL dengan error correction High untuk logo
-    const qrDataUrl = await QRCode.toDataURL(qrContent, {
-      errorCorrectionLevel: 'H', // High untuk support logo di tengah
-      type: 'image/png',
-      width: 200,
-      margin: 1,
-      color: {
-        dark: '#000000',
-        light: '#FFFFFF',
-      },
-    });
-
-    // Jika ada logo, tambahkan di tengah QR code
-    if (this.logoBase64) {
-      try {
-        return await this.addLogoToQRCode(qrDataUrl);
-      } catch (error) {
-        console.error('[QRCodeService] Failed to add logo to QR:', error);
-        return qrDataUrl; // Return QR tanpa logo jika gagal
-      }
-    }
-
-    return qrDataUrl;
+    const buffer = await this.generateQRCodePngBuffer(data);
+    return `data:image/png;base64,${buffer.toString('base64')}`;
   }
 
-  /**
-   * Tambahkan logo di tengah QR code
-   */
-  private async addLogoToQRCode(qrDataUrl: string): Promise<string> {
-    const qrSize = 200;
-    const logoSize = 50; // Logo 25% dari QR code
+  /** Unbranded PNG API retained for callers that need the plain QR. */
+  async generateQRCodeBuffer(data: QRCodeData): Promise<Buffer> {
+    return this.renderQRCode(data, false);
+  }
 
-    // Buat canvas
-    const canvas = createCanvas(qrSize, qrSize);
-    const ctx = canvas.getContext('2d');
+  async generateQRCodePngBuffer(data: QRCodeData): Promise<Buffer> {
+    return this.renderQRCode(data, true);
+  }
 
-    // Load QR code image
-    const qrImage = await loadImage(qrDataUrl);
-    ctx.drawImage(qrImage, 0, 0, qrSize, qrSize);
-
-    // Load dan gambar logo di tengah
-    if (this.logoBase64) {
+  private async renderQRCode(
+    data: QRCodeData,
+    withLogo: boolean,
+  ): Promise<Buffer> {
+    const content = this.formatQRContent(data);
+    // Auto-select the smallest valid symbol; keep High correction for the AirNav logo.
+    const options = { errorCorrectionLevel: 'H' as const, margin: 4, scale: 8 };
+    const buffer = await QRCode.toBuffer(content, { ...options, type: 'png' });
+    if (!withLogo || !this.logoBase64) return buffer;
+    try {
+      const modules = QRCode.create(content, options).modules.size;
+      const qrImage = await loadImage(buffer);
+      const canvas = createCanvas(qrImage.width, qrImage.height);
+      const ctx = canvas.getContext('2d');
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(qrImage, 0, 0);
       const logoImage = await loadImage(
         `data:image/jpeg;base64,${this.logoBase64}`,
       );
-
-      // Posisi logo di tengah
-      const logoX = (qrSize - logoSize) / 2;
-      const logoY = (qrSize - logoSize) / 2;
-
-      // Gambar background putih untuk logo (agar QR code tidak mengganggu)
+      // Align the white backing with module boundaries and limit its footprint.
+      let logoModules = Math.max(3, Math.floor(modules * 0.28));
+      if (logoModules % 2 === 0) logoModules -= 1;
+      const logoSize = logoModules * options.scale;
+      const logoX = (qrImage.width - logoSize) / 2;
+      const logoY = (qrImage.height - logoSize) / 2;
       ctx.fillStyle = '#FFFFFF';
-      ctx.fillRect(logoX - 5, logoY - 5, logoSize + 10, logoSize + 10);
-
-      // Gambar logo
+      ctx.fillRect(
+        logoX - options.scale,
+        logoY - options.scale,
+        logoSize + 2 * options.scale,
+        logoSize + 2 * options.scale,
+      );
+      ctx.imageSmoothingEnabled = true;
       ctx.drawImage(logoImage, logoX, logoY, logoSize, logoSize);
+      return canvas.toBuffer('image/png');
+    } catch (error) {
+      console.error('[QRCodeService] Failed to add logo to QR:', error);
+      return buffer;
     }
-
-    // Convert canvas ke data URL
-    return canvas.toDataURL('image/png');
-  }
-
-  /**
-   * Generate QR Code sebagai Buffer PNG
-   */
-  async generateQRCodeBuffer(data: QRCodeData): Promise<Buffer> {
-    const qrContent = this.formatQRContent(data);
-
-    const buffer = await QRCode.toBuffer(qrContent, {
-      errorCorrectionLevel: 'H',
-      type: 'png',
-      width: 200,
-      margin: 1,
-    });
-
-    return buffer;
-  }
-
-  /**
-   * Generate QR Code dengan logo sebagai PNG Buffer untuk pdf-lib
-   * Ini menggunakan canvas untuk menambahkan logo di tengah
-   */
-  async generateQRCodePngBuffer(data: QRCodeData): Promise<Buffer> {
-    const qrContent = this.formatQRContent(data);
-    const qrSize = 200;
-    const logoSize = 50;
-
-    // Generate QR code sebagai data URL
-    const qrDataUrl = await QRCode.toDataURL(qrContent, {
-      errorCorrectionLevel: 'H',
-      type: 'image/png',
-      width: qrSize,
-      margin: 1,
-      color: {
-        dark: '#000000',
-        light: '#FFFFFF',
-      },
-    });
-
-    // Buat canvas
-    const canvas = createCanvas(qrSize, qrSize);
-    const ctx = canvas.getContext('2d');
-
-    // Load QR code image
-    const qrImage = await loadImage(qrDataUrl);
-    ctx.drawImage(qrImage, 0, 0, qrSize, qrSize);
-
-    // Load dan gambar logo di tengah jika ada
-    if (this.logoBase64) {
-      try {
-        const logoImage = await loadImage(
-          `data:image/jpeg;base64,${this.logoBase64}`,
-        );
-
-        // Posisi logo di tengah
-        const logoX = (qrSize - logoSize) / 2;
-        const logoY = (qrSize - logoSize) / 2;
-
-        // Gambar background putih untuk logo
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(logoX - 5, logoY - 5, logoSize + 10, logoSize + 10);
-
-        // Gambar logo
-        ctx.drawImage(logoImage, logoX, logoY, logoSize, logoSize);
-      } catch (error) {
-        console.error('[QRCodeService] Failed to add logo:', error);
-      }
-    }
-
-    // Convert canvas ke Buffer PNG
-    return canvas.toBuffer('image/png');
   }
 
   /**
    * Format data untuk di-encode dalam QR code
-   * Prioritas: pdf_url > verification_url > JSON data
+   * Prioritas: referensi PDF final naskah > pdf_url > verification_url > JSON data
    */
   private formatQRContent(data: QRCodeData): string {
+    if (data.document_id && data.document_number) {
+      return finalPdfQrUrl(data.document_id, data.document_number);
+    }
+
     // Prioritas 1: URL langsung ke PDF
     if (data.pdf_url) {
       return data.pdf_url;

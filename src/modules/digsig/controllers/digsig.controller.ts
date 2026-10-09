@@ -1,5 +1,7 @@
 import {
   Controller,
+  StreamableFile,
+  Header,
   Post,
   Get,
   Body,
@@ -21,7 +23,8 @@ import {
   SignInternalResultResponse,
 } from '../services';
 import { SignInternalDto, SignBsreDto, CreateDigsigDto } from '../dto';
-import { CurrentUser, RequirePermission } from '../../../common/decorators';
+import { Public } from '../../../common/decorators/public.decorator';
+import { CurrentUser, RequirePermission, SkipTransform } from '../../../common/decorators';
 import { JwtAuthGuard } from '../../../common/guards';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 import { StorageService } from 'src/modules/storage/services/storage.service';
@@ -300,6 +303,22 @@ export class DigsigController {
   // ============================================
   // VERIFICATION ENDPOINTS
   // ============================================
+
+  /** Scan a document QR to open its current final PDF without login. */
+  @Public()
+  @Get('pdf/:id')
+  @SkipTransform()
+  @Header('Cache-Control', 'no-store')
+  async openFinalPdf(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Query('ref') reference: string,
+  ): Promise<StreamableFile> {
+    const buffer = await this.digsigService.getFinalPdfForQr(id, reference);
+    return new StreamableFile(buffer, {
+      type: 'application/pdf',
+      disposition: 'inline; filename="naskah-final.pdf"',
+    });
+  }
 
   /**
    * GET /digsig/verify/:signatureId
