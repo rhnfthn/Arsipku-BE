@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In, EntityManager } from 'typeorm';
@@ -28,6 +29,8 @@ import { PDFDocument } from 'pdf-lib';
 
 @Injectable()
 export class ArsipDinamisService {
+  private readonly logger = new Logger(ArsipDinamisService.name);
+
   constructor(
     @InjectRepository(Berkas)
     private readonly berkasRepository: Repository<Berkas>,
@@ -864,32 +867,38 @@ export class ArsipDinamisService {
     // langsung sinkron tanpa refresh manual. Fail-safe: gagal emit
     // tidak menggagalkan operasi.
     if (insertedCount > 0) {
-      const positionsByNaskah = new Map<string, Set<string>>();
-      for (const { naskahId } of newEntries) {
-        const rows: any[] = await this.dataSource.query(
-          `SELECT DISTINCT position FROM naskah_sirkulasi
-           WHERE id_naskah = ?
-             AND position IS NOT NULL
-             AND sirkuler IN ('pengirim', 'penerima', 'tembusan')`,
-          [naskahId],
-        );
-        const positions = positionsByNaskah.get(naskahId) ?? new Set<string>();
-        rows.forEach((r: any) => positions.add(String(r.position)));
-        positionsByNaskah.set(naskahId, positions);
-      }
-      const occurredAt = new Date().toISOString();
-      for (const [naskahId, positions] of positionsByNaskah) {
-        for (const positionId of positions) {
-          this.realtimeEmitService.emitBerkasUpdate(positionId, {
-            naskah_id: naskahId,
-            action: 'add',
-            berkas_id: berkas.id,
-            kode_berkas: berkas.kodeBerkas,
-            judul_berkas: berkas.judulBerkas,
-            berkas_status: berkas.status,
-            occurred_at: occurredAt,
-          });
+      try {
+        const positionsByNaskah = new Map<string, Set<string>>();
+        for (const { naskahId } of newEntries) {
+          const rows: any[] = await this.dataSource.query(
+            `SELECT DISTINCT position FROM naskah_sirkulasi
+             WHERE id_naskah = ?
+               AND position IS NOT NULL
+               AND sirkuler IN ('pengirim', 'penerima', 'tembusan')`,
+            [naskahId],
+          );
+          const positions = positionsByNaskah.get(naskahId) ?? new Set<string>();
+          rows.forEach((r: any) => positions.add(String(r.position)));
+          positionsByNaskah.set(naskahId, positions);
         }
+        const occurredAt = new Date().toISOString();
+        for (const [naskahId, positions] of positionsByNaskah) {
+          for (const positionId of positions) {
+            this.realtimeEmitService.emitBerkasUpdate(positionId, {
+              naskah_id: naskahId,
+              action: 'add',
+              berkas_id: berkas.id,
+              kode_berkas: berkas.kodeBerkas,
+              judul_berkas: berkas.judulBerkas,
+              berkas_status: berkas.status,
+              occurred_at: occurredAt,
+            });
+          }
+        }
+      } catch (error) {
+        this.logger.warn(
+          `Gagal mengirim pembaruan status berkas: ${error instanceof Error ? error.message : String(error)}`,
+        );
       }
     }
 
