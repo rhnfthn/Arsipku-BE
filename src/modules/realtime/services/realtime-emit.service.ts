@@ -358,6 +358,7 @@ export class RealtimeEmitService {
     positionId: string,
     payload: {
       id_sirkulasi: string;
+      id_naskah?: string | null;
       flag_type: string;
       new_value: boolean;
       note_text?: string | null;
