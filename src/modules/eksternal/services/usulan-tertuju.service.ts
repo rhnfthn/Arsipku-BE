@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -139,13 +140,11 @@ export class UsulanTertujuService {
     // hanya melihat usulan di area/lokasi penugasannya (organization_tu.area_id).
     const isSuperadmin = role === 'SUPERADMIN';
     if (!isSuperadmin) {
-      const tuArea = await this.organizationTuService.getActiveAreaForPersnum(
-        user.persnum,
-      );
-      const area = tuArea ?? user.area;
-      if (area) {
-        qb.andWhere('u.area = :area', { area });
+      const area = await this.getVerifierArea(user);
+      if (!area) {
+        throw new ForbiddenException('Area penugasan TU tidak ditemukan');
       }
+      qb.andWhere('u.area = :area', { area });
     }
 
     return qb.orderBy('u.created_at', 'DESC').getMany();
@@ -157,11 +156,12 @@ export class UsulanTertujuService {
    */
   async approve(
     id: string,
-    verifier: { persnum: number; nama?: string },
+    verifier: { persnum: number; nama?: string; role?: string; area?: string },
     dto?: VerifyUsulanDto,
   ): Promise<UsulanTertujuEksternalEntity> {
     const usulan = await this.usulanRepository.findOne({ where: { id } });
     if (!usulan) throw new NotFoundException('Usulan tidak ditemukan');
+    await this.assertVerifierCanProcess(usulan, verifier);
     if (usulan.status !== 'pending') {
       throw new BadRequestException(
         `Usulan sudah diproses (status: ${usulan.status})`,
@@ -201,7 +201,7 @@ export class UsulanTertujuService {
    */
   async reject(
     id: string,
-    verifier: { persnum: number; nama?: string },
+    verifier: { persnum: number; nama?: string; role?: string; area?: string },
     dto: VerifyUsulanDto,
   ): Promise<UsulanTertujuEksternalEntity> {
     if (!dto?.catatan?.trim()) {
@@ -210,6 +210,7 @@ export class UsulanTertujuService {
 
     const usulan = await this.usulanRepository.findOne({ where: { id } });
     if (!usulan) throw new NotFoundException('Usulan tidak ditemukan');
+    await this.assertVerifierCanProcess(usulan, verifier);
     if (usulan.status !== 'pending') {
       throw new BadRequestException(
         `Usulan sudah diproses (status: ${usulan.status})`,
@@ -223,6 +224,27 @@ export class UsulanTertujuService {
     usulan.catatan = dto.catatan.trim();
 
     return this.usulanRepository.save(usulan);
+  }
+
+  private async getVerifierArea(user: {
+    persnum: number;
+    area?: string;
+  }): Promise<string | null> {
+    const tuArea = await this.organizationTuService.getActiveAreaForPersnum(
+      user.persnum,
+    );
+    return tuArea ?? user.area ?? null;
+  }
+
+  private async assertVerifierCanProcess(
+    usulan: UsulanTertujuEksternalEntity,
+    verifier: { persnum: number; role?: string; area?: string },
+  ): Promise<void> {
+    if (verifier.role?.toUpperCase() === 'SUPERADMIN') return;
+    const area = await this.getVerifierArea(verifier);
+    if (!area || area !== usulan.area) {
+      throw new ForbiddenException('Usulan di luar area penugasan TU');
+    }
   }
 
   /**
@@ -251,9 +273,7 @@ export class UsulanTertujuService {
     if (role === 'SUPERADMIN') {
       return this.countPending();
     }
-    const tuArea = await this.organizationTuService.getActiveAreaForPersnum(
-      user.persnum,
-    );
-    return this.countPending(tuArea ?? user.area);
+    const area = await this.getVerifierArea(user);
+    return area ? this.countPending(area) : 0;
   }
 }

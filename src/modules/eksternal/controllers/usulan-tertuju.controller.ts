@@ -94,7 +94,12 @@ export class UsulanTertujuController {
   ) {
     const data = await this.usulanTertujuService.approve(
       id,
-      { persnum: user.persnum, nama: user.nama },
+      {
+        persnum: user.persnum,
+        nama: user.nama,
+        role: user.role,
+        area: user.area,
+      },
       dto,
     );
     return { success: true, data };
@@ -110,7 +115,12 @@ export class UsulanTertujuController {
   ) {
     const data = await this.usulanTertujuService.reject(
       id,
-      { persnum: user.persnum, nama: user.nama },
+      {
+        persnum: user.persnum,
+        nama: user.nama,
+        role: user.role,
+        area: user.area,
+      },
       dto,
     );
     return { success: true, data };
