@@ -1,5 +1,9 @@
+import { finalPdfQrViewerUrl } from '../services/final-pdf-qr.util';
 import {
   Controller,
+  StreamableFile,
+  Header,
+  Redirect,
   Post,
   Get,
   Body,
@@ -21,7 +25,8 @@ import {
   SignInternalResultResponse,
 } from '../services';
 import { SignInternalDto, SignBsreDto, CreateDigsigDto } from '../dto';
-import { CurrentUser, RequirePermission } from '../../../common/decorators';
+import { Public } from '../../../common/decorators/public.decorator';
+import { CurrentUser, RequirePermission, SkipTransform } from '../../../common/decorators';
 import { JwtAuthGuard } from '../../../common/guards';
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
 import { StorageService } from 'src/modules/storage/services/storage.service';
@@ -300,6 +305,35 @@ export class DigsigController {
   // ============================================
   // VERIFICATION ENDPOINTS
   // ============================================
+
+  /** Existing QR links enter the authenticated frontend viewer. */
+  @Public()
+  @Get('pdf/:id')
+  @SkipTransform()
+  @Redirect()
+  @Header('Cache-Control', 'no-store')
+  openFinalPdf(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Query('ref') reference: string,
+  ) {
+    return { url: finalPdfQrViewerUrl(id, reference), statusCode: 302 };
+  }
+
+  /** PDF bytes require an authenticated ArsipKu request. */
+  @Get('pdf/:id/content')
+  @SkipTransform()
+  @RequirePermission('naskah-dinas', 'read-detail')
+  @Header('Cache-Control', 'no-store')
+  async getFinalPdfContent(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Query('ref') reference: string,
+  ): Promise<StreamableFile> {
+    const buffer = await this.digsigService.getFinalPdfForQr(id, reference);
+    return new StreamableFile(buffer, {
+      type: 'application/pdf',
+      disposition: 'inline; filename="naskah-final.pdf"',
+    });
+  }
 
   /**
    * GET /digsig/verify/:signatureId

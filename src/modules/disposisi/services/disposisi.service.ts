@@ -1990,6 +1990,7 @@ export class DisposisiService {
         ) {
           const signedAt = tanggalDisposisi.toISOString();
           const qrData = {
+            document_id: naskahId,
             signature_id:
               dto.sign_option === SignOption.DIGSIG ? `DI-${naskahId}` : '',
             document_number: generatedNomor,
@@ -3315,6 +3316,7 @@ export class DisposisiService {
             dto.sign_option === SignOption.DIGSIG
           ) {
             const qrData = {
+              document_id: naskahId,
               signature_id:
                 dto.sign_option === SignOption.DIGSIG ? `DI-${naskahId}` : '',
               document_number: nomorDokumen,

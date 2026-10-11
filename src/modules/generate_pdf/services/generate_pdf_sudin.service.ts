@@ -470,7 +470,7 @@ export class GeneratePdfSudinService {
     if (needsAddressPage) {
       let penerimaListHtml = '';
       if (penerimaExceedsLimit) {
-        penerimaListHtml = "<ol style='margin-top:0px;margin-left:0px;'>";
+        penerimaListHtml = "<ol style='margin:0;padding-left:30px;'>";
         penerimaArr.forEach((item) => {
           penerimaListHtml += `<li>${item}</li>`;
         });
@@ -479,7 +479,7 @@ export class GeneratePdfSudinService {
 
       let tembusanListHtml = '';
       if (tembusanExceedsLimit) {
-        tembusanListHtml = "<ol style='margin-top:0px;margin-left:0px;'>";
+        tembusanListHtml = "<ol style='margin:0;padding-left:30px;'>";
         tembusanArr.forEach((item) => {
           tembusanListHtml += `<li>${item}</li>`;
         });
@@ -487,25 +487,18 @@ export class GeneratePdfSudinService {
       }
 
       addressPageContent = `
-        <div style="page-break-before: always; padding-top: 20px; font-family: 'Times New Roman', Times, serif;">
-          <table style="margin: 0 auto; width: 90%; font-family: 'Times New Roman', Times, serif; margin-bottom: 30px;">
-            <tr>
-              <td style="width: 50%;">&nbsp;</td>
-              <td style="width: 50%; text-align: right; vertical-align: top;">
-                <div style="display: inline-block; text-align: left;">
+        <div style="page-break-before: always; padding-top: 0; font-size: 12pt; line-height: 1.1; font-family: 'Times New Roman', Times, serif;">
+          <div style="text-align: right;">
                   Letter Attachment<br>
                   Letter Number : ${nomor}<br>
-                  Letter Date : ${tanggalFormatted}
+                  Letter Date : ${tanggal}
                 </div>
-              </td>
-            </tr>
-          </table>
-          <table style="margin: 0 auto; width: 90%; font-family: 'Times New Roman', Times, serif;">
+          <table style="margin: 0 auto; width: 100%; font-family: 'Times New Roman', Times, serif;">
             ${
               penerimaExceedsLimit
                 ? `<tr>
               <td style="vertical-align:top; padding-bottom:20px;">
-                <b>TO :</b><br>
+                TO :<br>
                 ${penerimaListHtml}
               </td>
             </tr>`
@@ -515,7 +508,7 @@ export class GeneratePdfSudinService {
               tembusanExceedsLimit
                 ? `<tr>
               <td style="vertical-align:top;">
-                <b>COPY TO :</b><br>
+                COPY TO :<br>
                 ${tembusanListHtml}
               </td>
             </tr>`
@@ -949,7 +942,7 @@ export class GeneratePdfSudinService {
       // Build address list HTML - HANYA tampilkan field yang > 5
       let penerimaListHtml = '';
       if (penerimaExceedsLimit) {
-        penerimaListHtml = "<ol style='margin-top:0px;margin-left:0px;'>";
+        penerimaListHtml = "<ol style='margin:0;padding-left:30px;'>";
         penerimaArr.forEach((item) => {
           penerimaListHtml += `<li>${item}</li>`;
         });
@@ -958,7 +951,7 @@ export class GeneratePdfSudinService {
 
       let tembusanListHtml = '';
       if (tembusanExceedsLimit) {
-        tembusanListHtml = "<ol style='margin-top:0px;margin-left:0px;'>";
+        tembusanListHtml = "<ol style='margin:0;padding-left:30px;'>";
         tembusanArr.forEach((item) => {
           tembusanListHtml += `<li>${item}</li>`;
         });
@@ -966,25 +959,18 @@ export class GeneratePdfSudinService {
       }
 
       addressPageContent = `
-        <div style="page-break-before: always; padding-top: 20px; font-family: 'Times New Roman', Times, serif;">
-          <table style="margin: 0 auto; width: 90%; font-family: 'Times New Roman', Times, serif; margin-bottom: 30px;">
-            <tr>
-              <td style="width: 50%;">&nbsp;</td>
-              <td style="width: 50%; text-align: right; vertical-align: top;">
-                <div style="display: inline-block; text-align: left;">
+        <div style="page-break-before: always; padding-top: 0; font-size: 12pt; line-height: 1.1; font-family: 'Times New Roman', Times, serif;">
+          <div style="text-align: right;">
                   Lampiran Surat<br>
                   Nomor Surat : ${nomor}<br>
-                  Tanggal Surat : ${tanggalFormatted}
+                  Tanggal Surat : ${tanggal}
                 </div>
-              </td>
-            </tr>
-          </table>
-          <table style="margin: 0 auto; width: 90%; font-family: 'Times New Roman', Times, serif;">
+          <table style="margin: 0 auto; width: 100%; font-family: 'Times New Roman', Times, serif;">
             ${
               penerimaExceedsLimit
                 ? `<tr>
               <td style="vertical-align:top; padding-bottom:20px;">
-                <b>KEPADA YTH :</b><br>
+                KEPADA YTH :<br>
                 ${penerimaListHtml}
               </td>
             </tr>`
@@ -994,7 +980,7 @@ export class GeneratePdfSudinService {
               tembusanExceedsLimit
                 ? `<tr>
               <td style="vertical-align:top;">
-                <b>TEMBUSAN :</b><br>
+                TEMBUSAN :<br>
                 ${tembusanListHtml}
               </td>
             </tr>`

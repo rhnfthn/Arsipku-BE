@@ -109,7 +109,7 @@ describe('PDF address page document number', () => {
       tanggal: '9 September 2026',
     });
 
-    expect(renderedHtml).toContain('<b>TEMBUSAN :</b>');
+    expect(renderedHtml).toContain('TEMBUSAN :<br>');
     expect(renderedHtml).toContain(`Nomor Surat : ${documentNumber}`);
   });
 
@@ -134,7 +134,7 @@ describe('PDF address page document number', () => {
       tanggal: '9 September 2026',
     });
 
-    expect(renderedHtml).toContain('<b>TEMBUSAN :</b>');
+    expect(renderedHtml).toContain('TEMBUSAN :<br>');
     expect(renderedHtml).toContain(`Nomor Surat : ${documentNumber}`);
   });
 
@@ -172,7 +172,7 @@ describe('PDF address page document number', () => {
       tanggal: '9 September 2026',
     });
 
-    expect(renderedHtml).toContain('<b>TEMBUSAN :</b>');
+    expect(renderedHtml).toContain('TEMBUSAN :<br>');
     expect(renderedHtml).toContain(`Nomor : ${documentNumber}`);
   });
   it.each([

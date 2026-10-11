@@ -1,3 +1,4 @@
+import type { QRCodeData } from '../../digsig/services/qrcode.service';
 import { portalCorrespondenceSignatureOptions, portalCorrespondenceQrHtml } from '../../tte-portal/helpers/portal-correspondence-signature';
 import { reservePortalCorrespondenceNumber } from '../../tte-portal/helpers/portal-correspondence-number';
 import { formatGmRecipientLabel } from '../../../common/helpers/gm-recipient-label.helper';
@@ -74,7 +75,6 @@ import {
 import {
   formatSignatureData,
   generateSignatureId,
-  QRCodeData,
 } from '../../../common/helpers/signature.helper';
 import { TteSigningGateway } from '../../tte-portal/services/tte-signing-gateway.service';
 import { TteSigningService } from '../../tte-portal/services/tte-signing.service';
@@ -1583,6 +1583,7 @@ export class KajianService {
         verificationUrl = `${VERIFICATION_BASE_URL}/${signatureId}`;
 
         const qrData: QRCodeData = {
+          document_id: naskahId,
           signature_id:
             dto.sign_option === SignOption.DIGSIG ? signatureId : '',
           document_number: generatedNomor.nomor,
@@ -3819,6 +3820,7 @@ export class KajianService {
         verificationUrl = `${VERIFICATION_BASE_URL}/${signatureId}`;
 
         const qrData: QRCodeData = {
+          document_id: naskahId,
           signature_id:
             dto.sign_option === SignOption.DIGSIG ? signatureId : '',
           document_number: naskah.nomor || '',

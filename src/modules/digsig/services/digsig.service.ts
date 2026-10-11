@@ -21,6 +21,7 @@ import {
   formatSignatureData,
   generateSignatureId,
 } from '../../../common/helpers/signature.helper';
+import { finalPdfQrReference } from './final-pdf-qr.util';
 import { QRCodeService, QRCodeData } from './qrcode.service';
 import { PdfQrEmbedService } from './pdf-qr-embed.service';
 import { DigsigLogService } from './digsig-log.service';
@@ -871,8 +872,8 @@ export class DigsigService {
     if (alreadySigned) {
       throw new BadRequestException('Berita Acara ini sudah ditandatangani');
     }
-    if (assignedPersnum && Number(assignedPersnum) !== Number(user.persnum)) {
-      throw new BadRequestException(
+    if (!assignedPersnum || Number(assignedPersnum) !== Number(user.persnum)) {
+      throw new ForbiddenException(
         `Hanya pejabat ${isPihakKedua ? 'pihak kedua' : 'pihak pertama'} BAC yang dapat menandatangani berita acara ini`,
       );
     }
@@ -1057,8 +1058,8 @@ export class DigsigService {
     if (isPihakKedua && !assignedPersnum) {
       throw new BadRequestException('Pejabat pihak kedua BAC belum ditetapkan');
     }
-    if (assignedPersnum && Number(assignedPersnum) !== Number(user.persnum)) {
-      throw new BadRequestException(
+    if (!assignedPersnum || Number(assignedPersnum) !== Number(user.persnum)) {
+      throw new ForbiddenException(
         `Hanya pejabat ${isPihakKedua ? 'pihak kedua' : 'pihak pertama'} BAC yang dapat menandatangani berita acara ini`,
       );
     }
@@ -1316,8 +1317,8 @@ export class DigsigService {
     if (isPihakKedua && !assignedPersnum) {
       throw new BadRequestException('Pejabat pihak kedua BAC belum ditetapkan');
     }
-    if (assignedPersnum && Number(assignedPersnum) !== Number(user.persnum)) {
-      throw new BadRequestException(
+    if (!assignedPersnum || Number(assignedPersnum) !== Number(user.persnum)) {
+      throw new ForbiddenException(
         `Hanya pejabat ${isPihakKedua ? 'pihak kedua' : 'pihak pertama'} BAC yang dapat menandatangani berita acara ini`,
       );
     }
@@ -1473,6 +1474,7 @@ export class DigsigService {
       document_type: 'Nota Dinas',
       verification_url: verificationUrl,
       pdf_url: pdfUrl,
+      document_id: naskah.id,
     };
 
     // 6. Regenerate PDF dengan QR code
@@ -1610,6 +1612,7 @@ export class DigsigService {
       document_type: 'Surat Dinas Internal',
       verification_url: verificationUrl,
       pdf_url: pdfUrl,
+      document_id: naskah.id,
     };
 
     // 6. Regenerate PDF dengan QR code
@@ -1748,6 +1751,7 @@ export class DigsigService {
       document_type: 'Surat Dinas Eksternal',
       verification_url: verificationUrl,
       pdf_url: pdfUrl,
+      document_id: naskah.id,
     };
 
     // 6. Regenerate PDF dengan QR code
@@ -1853,7 +1857,8 @@ export class DigsigService {
       signer_jabatan: signerJabatan,
       document_type: 'Nota Dinas',
       verification_url: verificationUrl,
-      pdf_url: pdfUrl, // QR code langsung ke dokumen PDF
+      pdf_url: pdfUrl,
+      document_id: naskah.id, // QR code langsung ke dokumen PDF
     };
 
     // Generate PDF baru dengan QR code - overwrite final_pdf
@@ -1965,6 +1970,7 @@ export class DigsigService {
       document_type: 'Surat Dinas Internal',
       verification_url: verificationUrl,
       pdf_url: pdfUrl,
+      document_id: naskah.id,
     };
 
     // Generate PDF baru dengan QR code - overwrite final_pdf
@@ -2074,6 +2080,7 @@ export class DigsigService {
       document_type: 'Surat Dinas Eksternal',
       verification_url: verificationUrl,
       pdf_url: pdfUrl,
+      document_id: naskah.id,
     };
 
     // Generate PDF baru dengan QR code - overwrite final_pdf
@@ -2414,6 +2421,31 @@ export class DigsigService {
    * Verifikasi dokumen berdasarkan signature_id
    * Mencari di tabel nd dan sdi_sde
    */
+  /** Public QR resolves the current completed PDF, including Portal replacement. */
+  async getFinalPdfForQr(id: string, reference: string): Promise<Buffer> {
+    const naskah = await this.naskahRepository.findOne({ where: { id } });
+    if (
+      !naskah ||
+      !naskah.nomor ||
+      reference !== finalPdfQrReference(id, naskah.nomor) ||
+      !['final', 'final_tte'].includes(naskah.status) ||
+      !naskah.final_pdf
+    ) {
+      throw new NotFoundException('PDF final naskah belum tersedia');
+    }
+    if (naskah.tandaTangan) {
+      try {
+        const metadata = JSON.parse(naskah.tandaTangan) as Record<string, unknown>;
+        if (metadata.mode === 'portal' && !metadata.signed_at) {
+          throw new Error('Portal signing incomplete');
+        }
+      } catch {
+        throw new NotFoundException('PDF final naskah belum tersedia');
+      }
+    }
+    return this.storageService.getFile(naskah.final_pdf);
+  }
+
   async verifyBySignatureId(signatureId: string): Promise<{
     valid: boolean;
     document?: {
