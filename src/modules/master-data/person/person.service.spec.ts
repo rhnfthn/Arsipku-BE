@@ -15,6 +15,7 @@ describe('PersonService', () => {
     where: jest.fn(),
     orderBy: jest.fn(),
     addOrderBy: jest.fn(),
+    setParameters: jest.fn(),
     clone: jest.fn(),
     skip: jest.fn(),
     take: jest.fn(),
@@ -49,6 +50,7 @@ describe('PersonService', () => {
       'where',
       'orderBy',
       'addOrderBy',
+      'setParameters',
       'clone',
       'skip',
       'take',
@@ -171,5 +173,31 @@ describe('PersonService', () => {
     expect(
       await service.findAllWithPosition('Person 2', 1, 50, user, true),
     ).toMatchObject({ total: 1, data: [{ position: 2 }] });
+  });
+  it('orders same-unit signers EVP, VP, AVP before pagination', async () => {
+    org.findLatestPositionSnapshot.mockResolvedValue({
+      position_json: [
+        { ...position(1, 10), position_text: 'Assistant Vice President' },
+        { ...position(2, 10), position_text: 'VP Legal' },
+        { ...position(3, 10), position_text: 'EVP Human Capital' },
+        { ...position(4, 10), position_text: 'Executive Vice President' },
+        { ...position(5, 10), position_text: 'AVP Legal' },
+        { ...position(6, 10), position_text: 'Vice President' },
+      ],
+    });
+    await service.findAllWithPosition(undefined, 1, 2, user, true);
+    expect(qb.setParameters).toHaveBeenCalledWith({
+      signerRank0: [3, 4],
+      signerRank1: [2, 6],
+      signerRank2: [1, 5],
+    });
+    expect(qb.orderBy).toHaveBeenLastCalledWith(
+      'CASE WHEN person.persnum IN (:...signerRank0) THEN 0 WHEN person.persnum IN (:...signerRank1) THEN 1 WHEN person.persnum IN (:...signerRank2) THEN 2 ELSE 3 END',
+      'ASC',
+    );
+    expect(qb.orderBy.mock.invocationCallOrder.at(-1)).toBeLessThan(
+      qb.skip.mock.invocationCallOrder[0],
+    );
+    expect(qb.take).toHaveBeenCalledWith(2);
   });
 });
