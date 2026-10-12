@@ -324,6 +324,18 @@ export const administrasiMatrix: AdministrasiMatrixHalaman = {
                   description: 'Button Export Tertuju',
                   resource: 'master-data',
                 },
+                {
+                  action: 'create-usulan-tertuju',
+                  label: 'Create',
+                  description: 'Ajukan usulan tertuju eksternal (semua user)',
+                  resource: 'master-data',
+                },
+                {
+                  action: 'verify-usulan-tertuju',
+                  label: 'Verify',
+                  description: 'Verifikasi usulan tertuju eksternal (TU)',
+                  resource: 'master-data',
+                },
               ],
             },
           ],

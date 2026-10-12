@@ -112,26 +112,7 @@ export class NaskahShareService {
 
     // 2. Validate sender has access to ALL naskah
     for (const naskahId of naskahIds) {
-      const hasAccess = await this.sirkulasiRepo.findOne({
-        where: {
-          idNaskah: naskahId,
-          position: user.position,
-        },
-      });
-      // Naskah Lainnya memakai workflow approval sendiri dan tidak membuat
-      // naskah_sirkulasi. Untuk jenis ini, hanya pemrakarsa yang tersimpan pada
-      // snapshot dikirimOleh yang boleh menyebarluaskan naskah final.
-      const naskah = naskahMap.get(naskahId)!;
-      const isNaskahLainnyaOwner =
-        naskah.tahapan != null &&
-        (String(naskah.dikirimOleh?.position_id ?? '') ===
-          String(user.position ?? '') ||
-          Number(naskah.dikirimOleh?.persnum) === Number(user.persnum));
-      if (!hasAccess && !isNaskahLainnyaOwner) {
-        throw new ForbiddenException(
-          `Anda tidak memiliki akses ke naskah ${naskahId}`,
-        );
-      }
+      await this.assertSenderCanShareNaskah(user, naskahMap.get(naskahId)!);
     }
 
     // 2b. Validasi finalisasi. Data Naskah Lainnya lama dapat sudah selesai dan
@@ -1063,6 +1044,19 @@ export class NaskahShareService {
       );
     }
 
+    await this.assertSenderCanShareNaskah(user, naskah);
+
+    if (naskah.tahapan != null) {
+      const config = await this.configNaskahLainnyaService.findByJenis(
+        naskah.jenis,
+      );
+      if (!config.shareEnabled) {
+        throw new BadRequestException(
+          `Jenis naskah ${naskah.jenis} tidak diizinkan untuk dibagikan`,
+        );
+      }
+    }
+
     // Resolve PDF final (naskah dinas reguler & naskah lainnya)
     const pdfKey = await this.resolveFinalPdfKey(naskah);
     if (!pdfKey) {
@@ -1129,6 +1123,31 @@ export class NaskahShareService {
       message: 'Email berhasil dikirim',
       data: result,
     };
+  }
+
+  private async assertSenderCanShareNaskah(
+    user: JwtPayload,
+    naskah: NaskahEntity,
+  ): Promise<void> {
+    const hasAccess = user.position
+      ? await this.sirkulasiRepo.findOne({
+          where: { idNaskah: naskah.id, position: user.position },
+        })
+      : null;
+    // Naskah Lainnya memakai workflow approval sendiri tanpa sirkulasi.
+    const isNaskahLainnyaOwner =
+      naskah.tahapan != null &&
+      ((!!user.position &&
+        String(naskah.dikirimOleh?.position_id ?? '') ===
+          String(user.position)) ||
+        (user.persnum != null &&
+          naskah.dikirimOleh?.persnum != null &&
+          Number(naskah.dikirimOleh.persnum) === Number(user.persnum)));
+    if (!hasAccess && !isNaskahLainnyaOwner) {
+      throw new ForbiddenException(
+        `Anda tidak memiliki akses ke naskah ${naskah.id}`,
+      );
+    }
   }
 
   /**

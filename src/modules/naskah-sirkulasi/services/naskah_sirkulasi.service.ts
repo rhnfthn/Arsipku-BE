@@ -2538,6 +2538,7 @@ export class NaskahSirkulasiService {
     if (sirkulasi.position) {
       this.realtimeEmitService.emitFlagUpdate(sirkulasi.position, {
         id_sirkulasi: idSirkulasi,
+        id_naskah: sirkulasi.idNaskah,
         flag_type: flagType,
         new_value: newValue === 1,
         note_text:

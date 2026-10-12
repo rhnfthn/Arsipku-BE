@@ -358,6 +358,7 @@ export class RealtimeEmitService {
     positionId: string,
     payload: {
       id_sirkulasi: string;
+      id_naskah?: string | null;
       flag_type: string;
       new_value: boolean;
       note_text?: string | null;
@@ -367,6 +368,30 @@ export class RealtimeEmitService {
       this.gateway.emitFlagUpdate(positionId, payload);
     } catch (err: any) {
       this.logger.warn(`⚠️ [emitFlagUpdate] failed: ${err?.message}`);
+    }
+  }
+
+  /**
+   * Emit status pemberkasan naskah ke position pemilik sirkulasi.
+   * Payload berisi naskah_id + status berkas terbaru agar FE cukup
+   * refresh status naskah terkait (bukan seluruh list).
+   */
+  emitBerkasUpdate(
+    positionId: string,
+    payload: {
+      naskah_id: string;
+      action: 'add' | 'remove';
+      berkas_id?: string;
+      kode_berkas?: string;
+      judul_berkas?: string;
+      berkas_status?: string;
+      occurred_at: string;
+    },
+  ) {
+    try {
+      this.gateway.emitBerkasUpdate(positionId, payload);
+    } catch (err: any) {
+      this.logger.warn(`⚠️ [emitBerkasUpdate] failed: ${err?.message}`);
     }
   }
 

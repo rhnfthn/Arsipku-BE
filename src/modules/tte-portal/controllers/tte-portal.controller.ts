@@ -46,7 +46,11 @@ export class TtePortalController {
   @HttpCode(HttpStatus.OK)
   async getTteMode(@Param('jenis') jenis: string) {
     const mode = await this.tteSigningGateway.getTteMode(jenis);
-    return { mode };
+    return {
+      mode,
+      callbackUrl:
+        mode === 'portal' ? process.env.TTE_REDIRECT_URL ?? null : null,
+    };
   }
 
   /**
