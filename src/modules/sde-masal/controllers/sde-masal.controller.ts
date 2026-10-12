@@ -175,6 +175,30 @@ export class SdeMasalController {
     return { success: true, data, message: 'SDE Massal dikembalikan ke konseptor' };
   }
 
+  @Post('folder/:folderId/send-emails')
+  @RequirePermission('sde-masal', 'update')
+  async sendFolderEmails(
+    @Param('folderId') folderId: string,
+    @Body() body: {
+      emails?: Array<{ itemId: string; to?: string; cc?: string; bcc?: string }>;
+    },
+    @CurrentUser() user: any,
+  ) {
+    const data = await this.sdeMasalService.sendFolderEmails(
+      folderId,
+      user?.position ?? user?.positionId,
+      user?.persnum ? Number(user.persnum) : undefined,
+      body?.emails,
+    );
+    return {
+      success: true,
+      data,
+      message: data.failed > 0
+        ? `${data.sent} email berhasil dikirim, ${data.failed} gagal.`
+        : 'Semua email berhasil dikirim.',
+    };
+  }
+
   @Post('folder/:folderId/lampiran-masal/prepare')
   @RequirePermission('sde-masal', 'update')
   @UseInterceptors(
