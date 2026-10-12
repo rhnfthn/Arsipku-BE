@@ -581,6 +581,42 @@ export class TransferActiveToInactiveService {
     const search = filter?.search?.trim() || '';
     const filterKlasifikasi = filter?.klasifikasi?.trim() || '';
     const filterTahun = filter?.tahun?.trim() || '';
+    const searchQuery = search.toLowerCase();
+    const statusSearchLabels: Record<string, string> = {
+      DRAFT: 'Draft',
+      MENUNGGU_VERIFIKASI_ATASAN: 'Menunggu Persetujuan',
+      DITOLAK_ATASAN: 'Ditolak',
+      DISETUJUI_ATASAN: 'Menunggu Persetujuan',
+      MENUNGGU_VERIFIKASI_TERAKHIR: 'Menunggu Persetujuan',
+      DITOLAK_VERIFIKASI_TERAKHIR: 'Ditolak',
+      USUL_PINDAH_DIKIRIM: 'Menunggu TTD',
+      DISETUJUI_VERIFIKASI_TERAKHIR: 'Menunggu Verifikasi',
+      SIAPKAN_BERKAS_FISIK: 'Menunggu Verifikasi',
+      DIKIRIM: 'Menunggu Verifikasi',
+      MENUNGGU_VERIFIKASI_BERKAS_FISIK: 'Menunggu Verifikasi',
+      BERKAS_FISIK_TIDAK_SESUAI: 'Ditolak',
+      BERKAS_FISIK_SESUAI: 'Menunggu Verifikasi',
+      MENUNGGU_VERIFIKASI_PERSETUJUAN_TU: 'Menunggu Penerimaan',
+      DITOLAK_PERSETUJUAN_TU: 'Ditolak',
+      DISETUJUI_PERSETUJUAN_TU: 'Menunggu Penerimaan',
+      MENUNGGU_PERSETUJUAN_TERAKHIR_TU: 'Menunggu Penerimaan',
+      DITOLAK_PERSETUJUAN_TERAKHIR_TU: 'Ditolak',
+      MENUNGGU_TTD_PIHAK_KEDUA: 'Menunggu Tanda Tangan Pihak Kedua',
+      DISETUJUI_PERSETUJUAN_TERAKHIR_TU: 'Menunggu Tanda Tangan Pihak Kedua',
+      ARSIP_INAKTIF_DITERIMA: 'Menunggu Penataan',
+      PENATAAN_ARSIP_INAKTIF: 'Penataan Arsip Inaktif',
+      SELESAI: 'Selesai',
+    };
+    const matchesSearch = (status: string | null | undefined, ...values: unknown[]) => {
+      if (!searchQuery) return true;
+      const statusValue = String(status ?? '');
+      return [
+        ...values,
+        statusValue,
+        statusValue.replace(/_/g, ' '),
+        statusSearchLabels[statusValue] ?? '',
+      ].some((value) => String(value ?? '').toLowerCase().includes(searchQuery));
+    };
 
     // Evaluasi retensi on-demand: status berkas di tabel gabungan selalu segar.
     await this.arsipDinamisService.tutupBerkasRetensiHabis();
@@ -665,13 +701,17 @@ export class TransferActiveToInactiveService {
 
     // Arsip belum jadi usulan → status "Draft"
     for (const b of berkasBelumUsulan) {
-      if (search) {
-        const q = search.toLowerCase();
-        const match =
-          (b.kodeBerkas ?? '').toLowerCase().includes(q) ||
-          b.judulBerkas.toLowerCase().includes(q);
-        if (!match) continue;
-      }
+      if (
+        !matchesSearch(
+          'DRAFT',
+          b.kodeBerkas,
+          b.judulBerkas,
+          b.klasifikasi,
+          b.klasifikasiTeks,
+          b.lokasi,
+        )
+      )
+        continue;
       if (filterKlasifikasi) {
         const bk = (b.klasifikasi ?? '').toLowerCase();
         const bkt = (b.klasifikasiTeks ?? '').toLowerCase();
@@ -707,19 +747,24 @@ export class TransferActiveToInactiveService {
     // Usulan yang sudah dibuat
     for (const u of usulanList) {
       const arsipUtamaId = u.arsipIds?.[0]?.id || u.arsipId;
-      if (search) {
-        const q = search.toLowerCase();
-        const match =
-          (u.arsipKode ?? '').toLowerCase().includes(q) ||
-          u.arsipPerihal.toLowerCase().includes(q) ||
-          (u.atasanName ?? '').toLowerCase().includes(q) ||
-          u.nomorUsulan.toLowerCase().includes(q);
-        if (!match) continue;
-      }
+      const entry = berkasKlasifikasiMap.get(arsipUtamaId);
+      if (
+        !matchesSearch(
+          u.status,
+          u.arsipKode,
+          u.arsipPerihal,
+          u.atasanName,
+          u.nomorUsulan,
+          entry?.kode,
+          entry?.teks,
+          entry?.lokasiFisik,
+          u.bacSignedAt ? 'BAC Ditandatangani' : '',
+        )
+      )
+        continue;
       if (filter?.status && u.status !== filter.status) continue;
       if (filterKlasifikasi) {
         const fk = filterKlasifikasi.toLowerCase();
-        const entry = berkasKlasifikasiMap.get(arsipUtamaId);
         const kode = (entry?.kode ?? '').toLowerCase();
         const teks = (entry?.teks ?? '').toLowerCase();
         if (kode !== fk && !teks.includes(fk) && !kode.includes(fk)) continue;

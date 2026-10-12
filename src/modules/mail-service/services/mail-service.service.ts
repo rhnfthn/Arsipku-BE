@@ -252,6 +252,14 @@ export class MailServiceService {
       this.logger.error(`Mail API error at ${endpoint}:`, error.message);
 
       if (error.response) {
+        const upstreamMessage = this.getUpstreamMessage(error.response.data);
+        const diagnosticMessage = [
+          `Mail API returned an error (HTTP ${error.response.status})`,
+          upstreamMessage,
+        ]
+          .filter(Boolean)
+          .join(': ');
+
         this.logger.error(
           `Mail API ${endpoint} responded with status ${error.response.status}:`,
           JSON.stringify(error.response.data),
@@ -259,9 +267,8 @@ export class MailServiceService {
         throw new HttpException(
           {
             success: false,
-            message: 'Mail API returned an error',
-            status: error.response.status,
-            data: error.response.data,
+            message: diagnosticMessage,
+            error: 'MAIL_API_UPSTREAM_ERROR',
           },
           HttpStatus.BAD_GATEWAY,
         );
@@ -275,6 +282,25 @@ export class MailServiceService {
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
+  }
+
+  /**
+   * Ambil pesan singkat dari response upstream tanpa meneruskan payload
+   * mentah yang mungkin berisi data internal. Token tidak pernah dibaca dari
+   * response ini.
+   */
+  private getUpstreamMessage(data: unknown): string | null {
+    if (typeof data === 'string') {
+      return data.trim().slice(0, 300) || null;
+    }
+
+    if (!data || typeof data !== 'object') return null;
+
+    const body = data as Record<string, unknown>;
+    const message = body.message ?? body.error ?? body.detail;
+    return typeof message === 'string'
+      ? message.trim().slice(0, 300) || null
+      : null;
   }
 
   private normalizeBaseUrl(value: string): string {
