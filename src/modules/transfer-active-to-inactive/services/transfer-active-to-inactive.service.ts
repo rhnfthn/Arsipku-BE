@@ -1018,28 +1018,110 @@ export class TransferActiveToInactiveService {
         : false,
     );
 
-    return copies.map((item) => ({
-      id: item.id,
-      nomorUsulan: item.nomorUsulan,
-      arsipPerihal: item.arsipPerihal,
-      arsipKode: item.arsipKode,
-      tanggalUsulan: item.tanggalUsulan,
-      status: item.status,
-      beritaAcaraNomor: item.beritaAcaraNomor,
-      bacPihakPertamaName: item.bacPihakPertamaName,
-      bacPihakPertamaJabatan: item.bacPihakPertamaJabatan,
-      bacPihakKeduaName: item.bacPihakKeduaName,
-      bacPihakKeduaJabatan: item.bacPihakKeduaJabatan,
-      bacPihakKeduaSignedAt: item.bacPihakKeduaSignedAt,
-      bacSignedAt: item.bacSignedAt,
-      bacStatus: item.bacSignedAt
-        ? 'SUDAH_DITANDATANGANI'
-        : 'MENUNGGU_TANDA_TANGAN',
-      // Preview memakai endpoint proxy /:id/berita-acara.pdf. Jangan
-      // membuat presigned URL MinIO saat memuat daftar: kegagalan MinIO
-      // sebelumnya membuat seluruh halaman tembusan ikut gagal 500.
-      beritaAcaraUrl: null,
-    }));
+    const arsipIds = Array.from(
+      new Set(
+        copies
+          .flatMap((item) => [
+            item.arsipId,
+            ...(Array.isArray(item.arsipIds)
+              ? item.arsipIds.map((archive) => archive?.id)
+              : []),
+          ])
+          .filter((id): id is string => typeof id === 'string' && id.length > 0),
+      ),
+    );
+    const arsipCodes = Array.from(
+      new Set(
+        copies
+          .flatMap((item) => [
+            item.arsipKode,
+            ...(Array.isArray(item.arsipIds)
+              ? item.arsipIds.map((archive) => archive?.kode)
+              : []),
+          ])
+          .filter((code): code is string => typeof code === 'string' && code.length > 0),
+      ),
+    );
+    const metadataByArsipId = new Map<
+      string,
+      { klasifikasi: string | null; klasifikasiKode: string | null; lokasi: string | null }
+    >();
+
+    if (arsipIds.length > 0 || arsipCodes.length > 0) {
+      const berkasList = await this.berkasRepo
+        .createQueryBuilder('b')
+        .select(['b.id', 'b.kodeBerkas', 'b.klasifikasiTeks', 'b.klasifikasi', 'b.lokasi'])
+        .where(
+          arsipIds.length > 0 && arsipCodes.length > 0
+            ? '(b.id IN (:...ids) OR b.kodeBerkas IN (:...codes))'
+            : arsipIds.length > 0
+              ? 'b.id IN (:...ids)'
+              : 'b.kodeBerkas IN (:...codes)',
+          { ids: arsipIds, codes: arsipCodes },
+        )
+        .getMany();
+
+      const klasifikasiCodes = berkasList
+        .map((berkas) => berkas.klasifikasi)
+        .filter((code): code is string => Boolean(code));
+      const klasifikasiRows = klasifikasiCodes.length > 0
+        ? await this.berkasRepo.manager
+            .createQueryBuilder()
+            .select('k.klasifikasi', 'kode')
+            .addSelect('k.klasifikasi_text', 'teks')
+            .from('klasifikasi', 'k')
+            .where('k.klasifikasi IN (:...codes)', { codes: klasifikasiCodes })
+            .getRawMany()
+        : [];
+      const klasifikasiMap = new Map(
+        klasifikasiRows.map((row: any) => [String(row.kode), row.teks ?? null]),
+      );
+
+      for (const berkas of berkasList) {
+        const metadata = {
+          klasifikasi:
+            berkas.klasifikasiTeks
+            ?? klasifikasiMap.get(String(berkas.klasifikasi ?? ''))
+            ?? berkas.klasifikasi
+            ?? null,
+          klasifikasiKode: berkas.klasifikasi ?? null,
+          lokasi: berkas.lokasi ?? null,
+        };
+        metadataByArsipId.set(berkas.id, metadata);
+        if (berkas.kodeBerkas) metadataByArsipId.set(`code:${berkas.kodeBerkas}`, metadata);
+      }
+    }
+
+    return copies.map((item) => {
+      const metadata = metadataByArsipId.get(
+        item.arsipIds?.[0]?.id ?? item.arsipId,
+      ) ?? metadataByArsipId.get(`code:${item.arsipIds?.[0]?.kode ?? item.arsipKode}`);
+      return {
+        id: item.id,
+        nomorUsulan: item.nomorUsulan,
+        arsipPerihal: item.arsipPerihal,
+        arsipKode: item.arsipKode,
+        arsipKlasifikasi: metadata?.klasifikasi ?? null,
+        arsipKlasifikasiKode: metadata?.klasifikasiKode ?? null,
+        arsipLokasiFisik: metadata?.lokasi ?? null,
+        tanggalUsulan: item.tanggalUsulan,
+        status: item.status,
+        beritaAcaraNomor: item.beritaAcaraNomor,
+        bacPihakPertamaName: item.bacPihakPertamaName,
+        bacPihakPertamaJabatan: item.bacPihakPertamaJabatan,
+        bacPihakKeduaName: item.bacPihakKeduaName,
+        bacPihakKeduaJabatan: item.bacPihakKeduaJabatan,
+        bacPihakKeduaSignedAt: item.bacPihakKeduaSignedAt,
+        bacSignedAt: item.bacSignedAt,
+        bacStatus: item.bacSignedAt
+          ? 'SUDAH_DITANDATANGANI'
+          : 'MENUNGGU_TANDA_TANGAN',
+        // Preview memakai endpoint proxy /:id/berita-acara.pdf. Jangan
+        // membuat presigned URL MinIO saat memuat daftar: kegagalan MinIO
+        // sebelumnya membuat seluruh halaman tembusan ikut gagal 500.
+        beritaAcaraUrl: null,
+      };
+    });
   }
 
   /**
@@ -2582,6 +2664,15 @@ export class TransferActiveToInactiveService {
     const pihakKeduaTtdMarkup = pihakKeduaQr
       ? `<div style="height:92px;width:82px;margin:0 auto 10px;"><img src="${pihakKeduaQr}" alt="QR tanda tangan Pihak Kedua" style="display:block;width:82px;height:82px;object-fit:contain;" /></div>`
       : '<p style="margin:0 0 78px;">Ttd</p>';
+    const pihakKeduaDiperlukan = Boolean(
+      item.bacPihakKeduaPersnum || pihakKedua.nama,
+    );
+    const seluruhTandaTanganSelesai = Boolean(
+      item.bacSignedAt &&
+        (!pihakKeduaDiperlukan ||
+          item.bacPihakKeduaSignedAt ||
+          signerType === 'pihak_kedua'),
+    );
 
     return `
       <div class="bac-document" style="font-family:'Times New Roman',Times,serif;font-size:12pt;line-height:1.55;font-weight:400;">
@@ -2660,6 +2751,11 @@ export class TransferActiveToInactiveService {
             </td>
           </tr>
         </table>
+        ${
+          seluruhTandaTanganSelesai
+            ? `<p style="margin:28px 0 0;text-align:center;font-size:9pt;line-height:1.35;">Dokumen ini telah ditandatangani secara elektronik menggunakan sertifikat elektronik<br/>yang diterbitkan oleh Balai Besar Sertifikasi Elektronik (BSrE), Badan Siber dan Sandi Negara</p>`
+            : ''
+        }
       </div>
     `.replace(ttdTokenRegex, ttdMarkup);
   }
