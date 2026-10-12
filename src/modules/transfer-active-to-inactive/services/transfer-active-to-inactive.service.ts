@@ -1335,6 +1335,7 @@ export class TransferActiveToInactiveService {
           'b.klasifikasi',
           'b.klasifikasiTeks',
           'b.tindakanPenyusutanAkhir',
+          'b.lokasi',
         ])
         .where('b.id = :id', { id: item.arsipId })
         .getOne();
@@ -1344,6 +1345,7 @@ export class TransferActiveToInactiveService {
         (item as any).arsipKlasifikasiKode = berkas.klasifikasi ?? null;
         (item as any).arsipTindakanPenyusutan =
           berkas.tindakanPenyusutanAkhir ?? null;
+        (item as any).lokasiAwal = berkas.lokasi ?? null;
       }
     }
 

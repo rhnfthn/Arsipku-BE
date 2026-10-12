@@ -3,7 +3,7 @@ import * as QRCode from 'qrcode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { createCanvas, loadImage } from 'canvas';
-import { finalPdfQrUrl } from './final-pdf-qr.util';
+import { finalPdfQrUrl } from './final-pdf-qr.util.js';
 
 export interface QRCodeData {
   document_id?: string;
