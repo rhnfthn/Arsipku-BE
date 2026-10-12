@@ -1,4 +1,4 @@
-import { finalPdfQrViewerUrl } from '../services/final-pdf-qr.util';
+import { finalPdfQrViewerUrl } from '../services/final-pdf-qr.util.js';
 import {
   Controller,
   StreamableFile,

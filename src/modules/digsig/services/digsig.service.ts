@@ -21,7 +21,7 @@ import {
   formatSignatureData,
   generateSignatureId,
 } from '../../../common/helpers/signature.helper';
-import { finalPdfQrReference } from './final-pdf-qr.util';
+import { finalPdfQrReference } from './final-pdf-qr.util.js';
 import { QRCodeService, QRCodeData } from './qrcode.service';
 import { PdfQrEmbedService } from './pdf-qr-embed.service';
 import { DigsigLogService } from './digsig-log.service';

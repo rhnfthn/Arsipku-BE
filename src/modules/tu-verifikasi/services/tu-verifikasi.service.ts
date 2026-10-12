@@ -134,13 +134,6 @@ export class TuVerifikasiService {
       },
     );
 
-    if (filter.search) {
-      qb.andWhere(
-        '(t.nomor_usulan LIKE :search OR t.arsip_perihal LIKE :search OR t.arsip_kode LIKE :search OR t.sekretaris_name LIKE :search OR t.atasan_name LIKE :search)',
-        { search: `%${filter.search}%` },
-      );
-    }
-
     qb.orderBy('t.tgl_dikirim', 'DESC').addOrderBy('t.created_at', 'DESC');
 
     // Filter berjenjang: jika user adalah atasan TU (terdaftar di tu_approval_levels),
@@ -205,13 +198,41 @@ export class TuVerifikasiService {
       }
     }
 
-    // Post-filter by search (klasifikasi & status tidak ada di tabel transfer)
+    // Post-filter by search setelah metadata klasifikasi dilampirkan. Search
+    // harus mencakup seluruh kolom yang tampil di tabel, termasuk klasifikasi
+    // dan label status; keduanya tidak tersimpan langsung pada query transfer.
     if (hasSearch) {
-      const q = filter.search!.toLowerCase();
-      data = allData.filter((d: any) => {
-        const klasifikasi = (d.arsipKlasifikasi ?? '').toLowerCase();
-        const status = (d.status ?? '').toLowerCase();
-        return klasifikasi.includes(q) || status.includes(q);
+      const q = filter.search!.trim().toLowerCase();
+      const statusLabels: Record<string, string> = {
+        DIKIRIM: 'Menunggu Verifikasi',
+        MENUNGGU_VERIFIKASI_BERKAS_FISIK: 'Menunggu Verifikasi',
+        BERKAS_FISIK_SESUAI: 'Menunggu Verifikasi',
+        USUL_PINDAH_DIKIRIM: 'Menunggu TTD',
+        SIAPKAN_BERKAS_FISIK: 'Menunggu Verifikasi',
+        MENUNGGU_VERIFIKASI_PERSETUJUAN_TU: 'Menunggu Penerimaan',
+        DISETUJUI_PERSETUJUAN_TU: 'Menunggu Penerimaan',
+        MENUNGGU_PERSETUJUAN_TERAKHIR_TU: 'Menunggu Penerimaan',
+        DISETUJUI_PERSETUJUAN_TERAKHIR_TU: 'Selesai',
+        ARSIP_INAKTIF_DITERIMA: 'Selesai',
+        PENATAAN_ARSIP_INAKTIF: 'Selesai',
+        SELESAI: 'Selesai',
+        BERKAS_FISIK_TIDAK_SESUAI: 'Ditolak',
+      };
+      data = data.filter((d: any) => {
+        const values = [
+          d.nomorUsulan,
+          d.arsipPerihal,
+          d.arsipKode,
+          d.sekretarisName,
+          d.atasanName,
+          d.arsipKlasifikasi,
+          d.arsipKlasifikasiKode,
+          d.status,
+          statusLabels[d.status] ?? '',
+        ];
+        return values.some((value) =>
+          String(value ?? '').toLowerCase().includes(q),
+        );
       });
       total = data.length;
     }
@@ -350,6 +371,7 @@ export class TuVerifikasiService {
           'b.tindakanPenyusutanAkhir',
           'b.klasifikasi',
           'b.klasifikasiTeks',
+          'b.lokasi',
         ])
         .where('b.id = :id', { id: transfer.arsipId })
         .getOne();
@@ -359,6 +381,7 @@ export class TuVerifikasiService {
         (transfer as any).arsipKlasifikasi =
           berkas.klasifikasiTeks ?? berkas.klasifikasi ?? null;
         (transfer as any).arsipKlasifikasiKode = berkas.klasifikasi ?? null;
+        (transfer as any).lokasiAwal = berkas.lokasi ?? null;
       }
     }
     return transfer;
