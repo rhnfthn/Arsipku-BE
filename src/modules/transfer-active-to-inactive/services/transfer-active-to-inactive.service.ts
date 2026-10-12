@@ -1054,6 +1054,30 @@ export class TransferActiveToInactiveService {
     const item = await this.findOne(id, user);
     const storedValue = item.beritaAcaraUrl;
 
+    // Preview selalu dirender ulang dari template terbaru agar layout PDF
+    // konsisten dengan kartu BAC di halaman detail. QR tanda tangan tetap
+    // diambil dari entity, sehingga status/isi tanda tangan tidak berubah.
+    try {
+      const baData = await this.getBeritaAcaraData(id);
+      const html = this.buildBacHtml(
+        item,
+        baData,
+        item.bacSignatureQr ?? undefined,
+        'pihak_pertama',
+      );
+      const generatedPdf = await this.generatePdfService.generateRawPdf(html);
+      if (generatedPdf.subarray(0, 5).toString('ascii') !== '%PDF-') {
+        throw new Error('Hasil generate BAC bukan PDF yang valid');
+      }
+      return generatedPdf;
+    } catch (error) {
+      this.logger.warn(
+        `Gagal merender template terbaru BAC ${id}: ${error?.message ?? error}`,
+      );
+    }
+
+    // Fallback untuk data lama jika renderer gagal. File storage tetap hanya
+    // dipakai sebagai cadangan, bukan sebagai sumber utama layout preview.
     if (storedValue && !storedValue.endsWith('/berita-acara.pdf')) {
       try {
         let objectKey = storedValue;
@@ -1081,33 +1105,12 @@ export class TransferActiveToInactiveService {
         }
       } catch (error) {
         this.logger.warn(
-          `PDF BAC tersimpan ${id} tidak dapat dibaca, membuat preview ulang: ${error?.message ?? error}`,
+          `PDF BAC tersimpan ${id} tidak dapat dibaca sebagai fallback: ${error?.message ?? error}`,
         );
       }
     }
 
-    // Fallback untuk data lama yang hanya menyimpan endpoint placeholder atau
-    // file storage-nya sudah tidak tersedia. Render ulang template BAC sebagai
-    // PDF agar preview tetap dapat dibuka dari seluruh halaman.
-    try {
-      const baData = await this.getBeritaAcaraData(id);
-      const html = this.buildBacHtml(
-        item,
-        baData,
-        item.bacSignatureQr ?? undefined,
-        'pihak_pertama',
-      );
-      const generatedPdf = await this.generatePdfService.generateRawPdf(html);
-      if (generatedPdf.subarray(0, 5).toString('ascii') !== '%PDF-') {
-        throw new Error('Hasil generate BAC bukan PDF yang valid');
-      }
-      return generatedPdf;
-    } catch (error) {
-      this.logger.error(
-        `Gagal membuat preview PDF BAC ${id}: ${error?.message ?? error}`,
-      );
-      throw new NotFoundException('PDF Berita Acara tidak dapat dipreview');
-    }
+    throw new NotFoundException('PDF Berita Acara tidak dapat dipreview');
   }
 
   async findAll(filter: TransferFilterDto, user: any) {
@@ -2009,9 +2012,9 @@ export class TransferActiveToInactiveService {
     const old = item.status;
     item.status = TransferActiveToInactiveStatus.DIKIRIM;
     item.tanggalDikirim = new Date();
-    // Tembusan BAC dari Sekretaris Divisi hanya berlaku pada tahap pihak pertama.
-    // TU memilih ulang penerima salinan saat mengajukan ke atasan managerial TU.
-    item.bacTembusan = [];
+    // Pertahankan tembusan BAC yang dipilih Sekretaris Divisi agar tetap
+    // tampil pada seluruh halaman detail/verifikasi. TU masih dapat
+    // menggantinya melalui payload pengajuan jika memang memilih daftar baru.
     const saved = await this.repo.save(item);
     this.logAudit(
       actor,
@@ -2539,11 +2542,17 @@ export class TransferActiveToInactiveService {
       .join('');
     const arsipMarkup =
       arsipList.length === 1
-        ? `<p style="margin:0 0 18px;">${escapeHtml(arsipList[0].kode ?? '-')} — ${escapeHtml(arsipList[0].perihal ?? '-')}</p>`
-        : `<ol style="margin:0 0 18px;padding-left:28px;">${arsipItems}</ol>`;
+        ? `<p style="margin:0 0 22px 84px;">${escapeHtml(arsipList[0].kode ?? '-')} — ${escapeHtml(arsipList[0].perihal ?? '-')}</p>`
+        : `<ol style="margin:0 0 22px 84px;padding-left:0;list-style:none;">${arsipItems}</ol>`;
 
-    const unitKerjaPengusulValue =
-      baData?.unitKerjaPengusul ?? baData?.pengirim?.divisi ?? item.divisiName ?? '.........';
+    const unitKerjaPengusulValue = [
+      baData?.unitKerjaPengusul,
+      baData?.pengirim?.divisi,
+      baData?.pengirim?.unitKerja,
+      item.divisiName,
+    ]
+      .map((value) => String(value ?? '').trim())
+      .find((value) => value && !/^\.{3,}$/.test(value)) ?? '.........';
     const unitKerjaPengusul = escapeHtml(unitKerjaPengusulValue);
     const unitKerjaTu = escapeHtml(baData?.unitKerjaTu ?? 'UC');
     const unitKerjaPihakPertama = escapeHtml(
@@ -2566,31 +2575,31 @@ export class TransferActiveToInactiveService {
       ? qrCodeDataUrl
       : item.bacPihakKeduaSignatureQr ?? undefined;
     const ttdMarkup = pihakPertamaQr
-      ? `<div style="height:82px;width:82px;margin:0 0 10px;"><img src="${pihakPertamaQr}" alt="QR tanda tangan Pihak Pertama" style="display:block;width:82px;height:82px;object-fit:contain;" /></div>`
-      : '<p style="margin:0 0 58px;">Ttd</p>';
+      ? `<div style="height:92px;width:82px;margin:0 auto 10px;"><img src="${pihakPertamaQr}" alt="QR tanda tangan Pihak Pertama" style="display:block;width:82px;height:82px;object-fit:contain;" /></div>`
+      : '<p style="margin:0 0 78px;">Ttd</p>';
     const pihakKeduaTtdMarkup = pihakKeduaQr
-      ? `<div style="height:82px;width:82px;margin:0 0 10px;"><img src="${pihakKeduaQr}" alt="QR tanda tangan Pihak Kedua" style="display:block;width:82px;height:82px;object-fit:contain;" /></div>`
-      : '<p style="margin:0 0 58px;">Ttd</p>';
+      ? `<div style="height:92px;width:82px;margin:0 auto 10px;"><img src="${pihakKeduaQr}" alt="QR tanda tangan Pihak Kedua" style="display:block;width:82px;height:82px;object-fit:contain;" /></div>`
+      : '<p style="margin:0 0 78px;">Ttd</p>';
 
     return `
-      <div class="bac-document" style="font-family:'Times New Roman',Times,serif;font-size:12pt;line-height:1.65;font-weight:400;">
+      <div class="bac-document" style="font-family:'Times New Roman',Times,serif;font-size:12pt;line-height:1.55;font-weight:400;">
         <style>
           .bac-document, .bac-document * { font-weight: 400 !important; }
         </style>
-        <div style="text-align:center;margin:0 0 18px;">
-          <p style="margin:0;text-decoration:underline;">BERITA ACARA</p>
+        <div style="text-align:center;margin:0 0 24px;">
+          <p style="margin:0;">BERITA ACARA</p>
           <p style="margin:0;">TENTANG</p>
           <p style="margin:0;text-transform:uppercase;">PEMINDAHAN ARSIP INAKTIF TAHUN ${tahun} - UNIT KERJA ${unitKerjaPengusul}</p>
           <p style="margin:8px 0 0;">Nomor : ${nomorBa}</p>
         </div>
 
-        <p style="margin:0 0 18px;text-align:justify;">Pada hari ini ${hari(item.tanggalUsulan)} tanggal ${fmt(item.tanggalUsulan)}, dilaksanakan pemindahan arsip inaktif dari Unit Kerja ${unitKerjaPengusul} ke Unit Kerja ${unitKerjaTu} yang melibatkan:</p>
+        <p style="margin:0 0 22px;text-align:justify;">Pada hari ini ${hari(item.tanggalUsulan)} tanggal ${fmt(item.tanggalUsulan)}, dilaksanakan pemindahan arsip inaktif dari Unit Kerja ${unitKerjaPengusul} ke Unit Kerja ${unitKerjaTu} yang melibatkan:</p>
 
-        <table style="width:calc(100% - 42px);margin:0 0 18px 42px;border:0;border-collapse:collapse;">
+        <table style="width:calc(100% - 42px);margin:0 0 12px 42px;border:0;border-collapse:collapse;table-layout:fixed;">
           <tr>
-            <td style="width:68px;padding:0;vertical-align:top;">1.</td>
-            <td style="width:110px;padding:0;vertical-align:top;">Nama</td>
-            <td style="width:24px;padding:0;vertical-align:top;">:</td>
+            <td style="width:42px;padding:0;vertical-align:top;">1.</td>
+            <td style="width:92px;padding:0;vertical-align:top;">Nama</td>
+            <td style="width:22px;padding:0;vertical-align:top;">:</td>
             <td style="padding:0;vertical-align:top;">${escapeHtml(pihakPertama.nama)}</td>
           </tr>
           <tr>
@@ -2606,15 +2615,13 @@ export class TransferActiveToInactiveService {
             <td style="padding:0;vertical-align:top;">${escapeHtml(pihakPertama.jabatan)}</td>
           </tr>
         </table>
-        <div style="margin:0 0 18px;padding-left:42px;">
-          <p style="margin:18px 0 0;text-align:justify;">Dalam hal ini bertindak atas nama pimpinan Unit Kerja ${unitKerjaPihakPertama} yang selanjutnya disebut PIHAK PERTAMA.</p>
-        </div>
+        <p style="margin:18px 0 22px;padding-left:84px;text-align:justify;">Dalam hal ini bertindak atas nama pimpinan Unit Kerja ${unitKerjaPihakPertama} yang selanjutnya disebut PIHAK PERTAMA.</p>
 
-        <table style="width:calc(100% - 42px);margin:0 0 18px 42px;border:0;border-collapse:collapse;">
+        <table style="width:calc(100% - 42px);margin:0 0 12px 42px;border:0;border-collapse:collapse;table-layout:fixed;">
           <tr>
-            <td style="width:68px;padding:0;vertical-align:top;">2.</td>
-            <td style="width:110px;padding:0;vertical-align:top;">Nama</td>
-            <td style="width:24px;padding:0;vertical-align:top;">:</td>
+            <td style="width:42px;padding:0;vertical-align:top;">2.</td>
+            <td style="width:92px;padding:0;vertical-align:top;">Nama</td>
+            <td style="width:22px;padding:0;vertical-align:top;">:</td>
             <td style="padding:0;vertical-align:top;">${escapeHtml(pihakKedua.nama)}</td>
           </tr>
           <tr>
@@ -2630,24 +2637,22 @@ export class TransferActiveToInactiveService {
             <td style="padding:0;vertical-align:top;">${escapeHtml(pihakKedua.jabatan)}</td>
           </tr>
         </table>
-        <div style="margin:0 0 18px;padding-left:42px;">
-          <p style="margin:18px 0 0;text-align:justify;">Dalam hal ini bertindak atas nama pimpinan Unit Kerja ${unitKerjaPihakKedua} yang selanjutnya disebut PIHAK KEDUA.</p>
-        </div>
+        <p style="margin:18px 0 26px;padding-left:84px;text-align:justify;">Dalam hal ini bertindak atas nama pimpinan Unit Kerja ${unitKerjaPihakKedua} yang selanjutnya disebut PIHAK KEDUA.</p>
 
-        <p style="margin:26px 0 18px;text-align:justify;">Menyatakan telah melaksanakan serah terima pemindahan arsip inaktif seperti tercantum pada daftar arsip terlampir.</p>
-        <p style="margin:0 0 4px;">Daftar arsip:</p>
+        <p style="margin:0 0 22px 84px;text-align:justify;">Menyatakan telah melaksanakan serah terima pemindahan arsip inaktif seperti tercantum pada daftar arsip terlampir.</p>
+        <p style="margin:0 0 4px 84px;">Daftar arsip:</p>
         ${arsipMarkup}
 
-        <p style="margin:0 0 42px;text-align:justify;">Demikian Berita Acara ini dibuat untuk dapat dipergunakan sebagaimana mestinya.</p>
+        <p style="margin:0 0 58px 84px;text-align:justify;">Demikian Berita Acara ini dibuat untuk dapat dipergunakan sebagaimana mestinya.</p>
         <table style="width:100%;border:0;margin:0;">
           <tr>
-            <td style="width:50%;text-align:left;vertical-align:top;">
-              <p style="margin:0 0 16px;">Pihak Pertama</p>
+            <td style="width:50%;text-align:center;vertical-align:top;">
+              <p style="margin:0 0 20px;">Pihak Pertama</p>
               {{ttd}}
               <p style="margin:0;">(${escapeHtml(pihakPertama.jabatan)})</p>
             </td>
-            <td style="width:50%;text-align:left;vertical-align:top;">
-              <p style="margin:0 0 16px;">Pihak Kedua</p>
+            <td style="width:50%;text-align:center;vertical-align:top;">
+              <p style="margin:0 0 20px;">Pihak Kedua</p>
               ${pihakKeduaTtdMarkup}
               <p style="margin:0;">(${escapeHtml(pihakKedua.jabatan || 'Jabatan')})</p>
             </td>
@@ -3163,9 +3168,14 @@ export class TransferActiveToInactiveService {
       this.getDaftarIsi(id),
       this.getBeritaAcaraData(id),
     ]);
-    const unitKerja = String(
-      beritaAcaraData?.unitKerjaPengusul || item.divisiName || '',
-    ).trim() || '-';
+    const unitKerja = [
+      beritaAcaraData?.unitKerjaPengusul,
+      beritaAcaraData?.pengirim?.divisi,
+      (beritaAcaraData?.pengirim as any)?.unitKerja,
+      item.divisiName,
+    ]
+      .map((value) => String(value ?? '').trim())
+      .find((value) => value && !/^\.{3,}$/.test(value)) ?? '-';
     const archiveRows = (daftar.daftarBerkas ?? []).map((row: any) => ({
       ...row,
       lokasiSimpan: item.lokasiPenataan || row.lokasiSimpan || '-',
