@@ -398,6 +398,7 @@ export class SuratDinasEksternalService {
     atasNama: string = '',
     lampiranDirectRefs: Array<{ fileName: string; key: string }> = [],
     signOption?: SignOption | string,
+    signedQrData?: QRCodeData,
   ): Promise<Buffer> {
     try {
       // Determine lampiran text: use file names from lampiran_temp_ids if available
@@ -437,12 +438,16 @@ export class SuratDinasEksternalService {
         }
       }
 
-      // Generate preview QR code untuk preview PDF
+      // Preview biasa memakai QR placeholder. Untuk naskah yang sudah
+      // ditandatangani QR asli dibuat dari identitas dokumennya.
       const isBsre =
         String(signOption || '').toLowerCase() === SignOption.DIGSIG;
-      const previewQrHtml = isBsre
+      const signedQrHtml = signedQrData
+        ? `<img src="${await this.qrCodeService.generateQRCodeBase64(signedQrData)}" style="width: 80px; height: 80px;" alt="QR Code" />`
+        : undefined;
+      const previewQrHtml = signedQrHtml || (isBsre
         ? undefined
-        : await this.qrCodeService.generatePreviewQRCodeHtml();
+        : await this.qrCodeService.generatePreviewQRCodeHtml());
 
       const htmlBase64 = Buffer.from(htmlContent, 'utf-8').toString('base64');
 

@@ -69,15 +69,6 @@ const RESERVED_NOMOR_KEY = '__sdeMasalReservedNomor';
 // beberapa chunk supaya penggunaan memori, koneksi DB, dan payload tetap aman.
 const SDE_MASAL_FINALIZE_BATCH_SIZE = 8;
 
-// Email tidak menahan respons finalisasi, tetapi tetap dibatasi supaya batch
-// besar tidak membanjiri mail service.
-const sdeMasalEmailQueue = new PQueue({
-  concurrency: 4,
-  intervalCap: 8,
-  interval: 1000,
-  throwOnTimeout: true,
-});
-
 // Generate dipanggil dari beberapa jalur wizard (watcher, autosave, dan
 // tombol aksi). Serialisasi singkat ini mencegah dua request untuk folder yang
 // sama sama-sama lolos pengecekan lalu melakukan insert ganda.
@@ -562,14 +553,22 @@ export class SdeMasalService {
       ...recipient,
       tembusan: recipient.tembusanEksternal || recipient.tembusan || '',
     });
+    const internalTembusan = this.parseInternalTembusan(recipient);
+    const authorityPositionId = Number(folder.atasNamaPositionId);
+    if (
+      Number.isFinite(authorityPositionId) &&
+      authorityPositionId > 0 &&
+      !internalTembusan.includes(authorityPositionId)
+    ) {
+      internalTembusan.push(authorityPositionId);
+    }
     const konten = this.renderFolderKonten(folder, item, {
       ...recipient,
       tembusan:
         tembusanList || recipient.tembusanEksternal || recipient.tembusan || '',
-      tembusan_internal: recipient.tembusanInternal || '',
+      tembusan_internal: internalTembusan.join(';'),
       tembusan_eksternal: recipient.tembusanEksternal || '',
     });
-    const internalTembusan = this.parseInternalTembusan(recipient);
     const normalizedSignOption = signOption || folder.signOption || 'qr_only';
 
     const dto: CreateSuratDinasEksternalDto = {
@@ -653,27 +652,6 @@ export class SdeMasalService {
         );
       }
 
-      // Kirim email otomatis ke alamat dari kolom Excel
-      // (email_tertuju → to, email_cc → cc, email_bcc → bcc).
-      if (!deferPortalRequest)
-        void sdeMasalEmailQueue
-          .add(() =>
-            this.sendEmailForItem(
-              data.id,
-              recipient,
-              external,
-              pengirim,
-              folder,
-              creatorPosition,
-              persnum,
-            ),
-          )
-          .catch((error) =>
-            this.logger.warn(
-              `[SDE Masal] Proses email lanjutan gagal untuk ${data.id}: ${error?.message || error}`,
-            ),
-          );
-
       return {
         naskahId: data.id,
         nomor: data.nomor || '',
@@ -692,11 +670,7 @@ export class SdeMasalService {
     }
   }
 
-  /**
-   * Kirim email otomatis ke alamat dari kolom Excel (email_tertuju/cc/bcc).
-   * Dipanggil setelah naskah berhasil difinalisasi. Gagal kirim email TIDAK
-   * menggagalkan finalisasi (hanya dicatat di log).
-   */
+  /** Kirim satu naskah SDE Massal melalui email. */
   private async sendEmailForItem(
     naskahId: string,
     recipient: Record<string, any>,
@@ -705,7 +679,7 @@ export class SdeMasalService {
     folder: SdeMasalFolderEntity,
     creatorPosition?: string | number,
     persnum?: number,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const to =
       String(recipient.emailTertuju || recipient.email_tertuju || '').trim() ||
       external.email ||
@@ -717,7 +691,7 @@ export class SdeMasalService {
       this.logger.warn(
         `[SDE Masal] Item ${naskahId} tidak punya email tujuan, skip kirim email.`,
       );
-      return;
+      return false;
     }
 
     const senderPersnum = persnum
@@ -742,11 +716,154 @@ export class SdeMasalService {
       this.logger.log(
         `[SDE Masal] Email terkirim untuk item ${naskahId} → ${to}`,
       );
+      return true;
     } catch (error) {
       this.logger.warn(
         `[SDE Masal] Gagal kirim email item ${naskahId} → ${to}: ${error?.message || error}`,
       );
+      return false;
     }
+  }
+
+  /**
+   * Kirim seluruh naskah yang sudah ditandatangani dari sisi konseptor.
+   * Item yang berhasil dikirim ditandai di recipientData agar tombol dapat
+   * dipakai ulang tanpa mengirim email yang sama dua kali.
+   */
+  async sendFolderEmails(
+    folderId: string,
+    creatorPosition?: string | number,
+    requesterPersnum?: number,
+    emailOverrides: Array<{
+      itemId: string;
+      to?: string;
+      cc?: string;
+      bcc?: string;
+    }> = [],
+  ) {
+    const folder = await this.folderRepo.findOne({ where: { id: folderId } });
+    if (!folder) throw new NotFoundException('Folder SDE Massal tidak ditemukan');
+    if (String(folder.createdBy || '') !== String(creatorPosition || '')) {
+      throw new ForbiddenException('Hanya konseptor yang dapat mengirim email');
+    }
+    if (!['SIAP_KIRIM', 'TERKIRIM'].includes(folder.status)) {
+      throw new BadRequestException('Folder belum siap dikirim melalui email');
+    }
+
+    const rows = this.deduplicateMassalRows(
+      await this.repo.find({ where: { folderId }, order: { createdAt: 'ASC' } }),
+    ).filter((item) => item.naskahId && item.statusVerifikasi === 'TERKIRIM');
+    if (rows.length === 0) {
+      throw new BadRequestException('Belum ada naskah yang selesai ditandatangani');
+    }
+
+    const orgData = await this.orgDataService.findOrg(
+      folder.tanggal
+        ? new Date(folder.tanggal).toISOString().slice(0, 10)
+        : new Date().toISOString().slice(0, 10),
+    );
+    const pengirim = orgData?.position_json?.find(
+      (position: any) => String(position.position) === String(folder.pengirimId || ''),
+    );
+    const senderPersnum = requesterPersnum ||
+      (pengirim?.persnum_person ? Number(pengirim.persnum_person) : undefined);
+    const overrideMap = new Map(
+      emailOverrides.map((override) => [String(override.itemId), override]),
+    );
+    const results: Array<{
+      itemId: string;
+      naskahId: string;
+      perihal: string;
+      email: string;
+      status: 'sent' | 'skipped' | 'failed';
+      message?: string;
+    }> = [];
+
+    for (const item of rows) {
+      const recipient = this.parseRecipientData(item);
+      const override = overrideMap.get(item.id);
+      if (override) {
+        recipient.emailTertuju = String(override.to || '').trim();
+        recipient.emailCc = String(override.cc || '').trim();
+        recipient.emailBcc = String(override.bcc || '').trim();
+      }
+      const emailSentAt = String(recipient.emailSentAt || '').trim();
+      const to = String(recipient.emailTertuju || recipient.email_tertuju || '').trim();
+      const external = await this.resolveRecipientExternal(folder, item, recipient);
+      const resolvedEmail = to || external.email || '';
+
+      if (emailSentAt) {
+        results.push({
+          itemId: item.id,
+          naskahId: item.naskahId!,
+          perihal: recipient.perihal || '-',
+          email: resolvedEmail,
+          status: 'skipped',
+          message: 'Email sudah pernah dikirim',
+        });
+        continue;
+      }
+
+      const sent = await this.sendEmailForItem(
+        item.naskahId!,
+        recipient,
+        external,
+        pengirim,
+        folder,
+        folder.pengirimId || creatorPosition,
+        senderPersnum,
+      );
+      recipient.emailSendError = sent ? undefined : 'Email gagal dikirim';
+      if (sent) {
+        recipient.emailSentAt = new Date().toISOString();
+        delete recipient.emailSendError;
+      }
+      item.recipientData = JSON.stringify(recipient);
+      await this.repo.save(item);
+      results.push({
+        itemId: item.id,
+        naskahId: item.naskahId!,
+        perihal: recipient.perihal || '-',
+        email: resolvedEmail,
+        status: sent ? 'sent' : 'failed',
+        message: sent ? 'Email berhasil dikirim' : 'Email gagal dikirim',
+      });
+    }
+
+    const allSent = results.every((result) =>
+      result.status === 'sent' || result.status === 'skipped',
+    );
+    if (allSent) {
+      folder.status = 'TERKIRIM';
+      folder.rejectionReason = null;
+      await this.folderRepo.save(folder);
+      if (folder.parentNaskahId && folder.createdBy) {
+        await this.sirkulasiRepository.update(
+          {
+            idNaskah: folder.parentNaskahId,
+            position: String(folder.createdBy),
+            sirkuler: In(['penerima', 'tembusan']),
+          },
+          { tindakLanjut: 1 },
+        );
+      }
+      await this.notifySdeMasalPositions([folder.createdBy], {
+        title: 'SDE Massal Selesai Dikirim',
+        body: `Folder "${folder.judul || '-'}" berhasil dikirim melalui email.`,
+        action: 'OPEN_SDE_MASAL_FOLDER',
+        folderId: folder.id,
+        status: 'TERKIRIM',
+      });
+    }
+
+    return {
+      folderStatus: allSent ? 'TERKIRIM' : 'SIAP_KIRIM',
+      total: results.length,
+      sent: results.filter((result) => result.status === 'sent').length,
+      skipped: results.filter((result) => result.status === 'skipped').length,
+      failed: results.filter((result) => result.status === 'failed').length,
+      results,
+    };
   }
 
   /**
@@ -1364,29 +1481,21 @@ export class SdeMasalService {
     }
     if (success > 0 && !isPortalMode) {
       // Update hanya kolom alasan. Menyimpan objek `folder` yang dibaca sebelum
-      // finalisasi akan menimpa status TERKIRIM hasil refreshFolderCounters.
+      // finalisasi akan menimpa status hasil refreshFolderCounters.
       await this.folderRepo.update(
         { id: folder.id },
         { rejectionReason: null },
       );
-
-      if (folder.parentNaskahId && folder.createdBy) {
-        await this.sirkulasiRepository.update(
-          {
-            idNaskah: folder.parentNaskahId,
-            position: String(folder.createdBy),
-            sirkuler: In(['penerima', 'tembusan']),
-          },
-          { tindakLanjut: 1 },
-        );
+      const updatedFolder = await this.folderRepo.findOne({ where: { id: folder.id } });
+      if (updatedFolder?.status === 'SIAP_KIRIM') {
+        await this.notifySdeMasalPositions([folder.createdBy], {
+          title: 'SDE Massal Siap Dikirim',
+          body: `Folder "${folder.judul || '-'}" sudah ditandatangani dan siap dikirim melalui email.`,
+          action: 'OPEN_SDE_MASAL_FOLDER',
+          folderId: folder.id,
+          status: 'SIAP_KIRIM',
+        });
       }
-      await this.notifySdeMasalPositions([folder.createdBy], {
-        title: 'SDE Massal Selesai Dikirim',
-        body: `Folder "${folder.judul || '-'}" berhasil difinalisasi dan dikirim.`,
-        action: 'OPEN_SDE_MASAL_FOLDER',
-        folderId: folder.id,
-        status: 'TERKIRIM',
-      });
     }
     return {
       total: eligibleItems.length,
@@ -1409,70 +1518,17 @@ export class SdeMasalService {
       where: { id: item.folderId },
     });
     if (!folder) return;
-    const recipient = this.normalizeMassalRecipient(
-      this.parseRecipientData(item),
-    );
-    try {
-      const external = await this.resolveRecipientExternal(
-        folder,
-        item,
-        recipient,
-      );
-      const tanggal = folder.tanggal
-        ? new Date(folder.tanggal).toISOString().slice(0, 10)
-        : new Date().toISOString().slice(0, 10);
-      const orgData = await this.orgDataService.findOrg(tanggal);
-      const pengirim = orgData?.position_json?.find(
-        (position: any) =>
-          Number(position.position) === Number(folder.pengirimId),
-      );
-      if (pengirim) {
-        void sdeMasalEmailQueue
-          .add(() =>
-            this.sendEmailForItem(
-              naskahId,
-              recipient,
-              external,
-              pengirim,
-              folder,
-              folder.pengirimId || undefined,
-              undefined,
-            ),
-          )
-          .catch((error) =>
-            this.logger.warn(
-              `[SDE Massal] Email setelah Portal TTE gagal untuk ${naskahId}: ${error?.message || error}`,
-            ),
-          );
-      }
-    } catch (error) {
-      this.logger.warn(
-        `[SDE Massal] Persiapan email callback gagal untuk ${naskahId}: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-
     await this.refreshFolderCounters(item.folderId);
     const completedFolder = await this.folderRepo.findOne({
       where: { id: item.folderId },
     });
-    if (completedFolder?.status !== 'TERKIRIM') return;
-
-    if (completedFolder.parentNaskahId && completedFolder.createdBy) {
-      await this.sirkulasiRepository.update(
-        {
-          idNaskah: completedFolder.parentNaskahId,
-          position: String(completedFolder.createdBy),
-          sirkuler: In(['penerima', 'tembusan']),
-        },
-        { tindakLanjut: 1 },
-      );
-    }
+    if (!completedFolder || !['SIAP_KIRIM', 'TERKIRIM'].includes(completedFolder.status)) return;
     await this.notifySdeMasalPositions([completedFolder.createdBy], {
-      title: 'SDE Massal Selesai Dikirim',
-      body: `Folder "${completedFolder.judul || '-'}" berhasil ditandatangani melalui Portal TTE dan dikirim.`,
+      title: 'SDE Massal Siap Dikirim',
+      body: `Folder "${completedFolder.judul || '-'}" sudah ditandatangani melalui Portal TTE dan siap dikirim melalui email.`,
       action: 'OPEN_SDE_MASAL_FOLDER',
       folderId: completedFolder.id,
-      status: 'TERKIRIM',
+      status: 'SIAP_KIRIM',
     });
   }
 
@@ -1643,7 +1699,7 @@ export class SdeMasalService {
           creator?.persnum_person_text || creator?.persnum_person || null;
         (folder as any).createdByPositionText = creator?.position_text || null;
         if (
-          ['MENUNGGU_PENGIRIM', 'SEBAGIAN_TERKIRIM', 'TERKIRIM'].includes(
+          ['MENUNGGU_PENGIRIM', 'SEBAGIAN_TERKIRIM', 'SIAP_KIRIM', 'TERKIRIM'].includes(
             folder.status,
           )
         ) {
@@ -1698,7 +1754,7 @@ export class SdeMasalService {
         creator?.persnum_person_text || creator?.persnum_person || null;
       (folder as any).createdByPositionText = creator?.position_text || null;
       if (
-        ['MENUNGGU_PENGIRIM', 'SEBAGIAN_TERKIRIM', 'TERKIRIM'].includes(
+        ['MENUNGGU_PENGIRIM', 'SEBAGIAN_TERKIRIM', 'SIAP_KIRIM', 'TERKIRIM'].includes(
           folder.status,
         )
       ) {
@@ -1722,7 +1778,7 @@ export class SdeMasalService {
     const isSender =
       !!positionId &&
       String(folder.pengirimId || '') === String(positionId) &&
-      ['MENUNGGU_PENGIRIM', 'SEBAGIAN_TERKIRIM', 'TERKIRIM'].includes(
+      ['MENUNGGU_PENGIRIM', 'SEBAGIAN_TERKIRIM', 'SIAP_KIRIM', 'TERKIRIM'].includes(
         folder.status,
       );
     const isOwner = isCreator || isSender;
@@ -2727,9 +2783,8 @@ export class SdeMasalService {
     if (!folder)
       throw new NotFoundException('Folder SDE Massal tidak ditemukan');
 
-    // Dokumen BSrE wajib memakai file final hasil signing. Merender ulang PDF
-    // akan menghilangkan struktur signature (/Sig + ByteRange), sehingga file
-    // yang diunduh dari tombol print terbaca NO_SIGNATURE di Cek Dokumen.
+    // Dokumen BSrE wajib memakai file final hasil signing. Merender ulangnya
+    // akan menghilangkan struktur signature (/Sig + ByteRange).
     // Data Excel untuk naskah baru sudah dirender sebelum proses signing, jadi
     // final_pdf tetap memuat placeholder penerima sekaligus tanda tangan asli.
     if (naskah.signOption === 'digsig' && naskah.final_pdf) {
@@ -2751,9 +2806,20 @@ export class SdeMasalService {
     const tembusanEksternal = String(
       recipient.tembusanEksternal || recipient.tembusan_eksternal || '',
     );
-    const tembusanInternal = String(
+    let tembusanInternal = String(
       recipient.tembusanInternal || recipient.tembusan_internal || '',
     );
+    const authorityPositionId = String(folder.atasNamaPositionId || '').trim();
+    if (authorityPositionId) {
+      const internalIds = tembusanInternal
+        .split(/[,;]/)
+        .map((value) => value.trim())
+        .filter(Boolean);
+      if (!internalIds.includes(authorityPositionId)) {
+        internalIds.push(authorityPositionId);
+      }
+      tembusanInternal = internalIds.join(';');
+    }
     const [tembusanNames, tembusanInternalNames, tembusanEksternalNames] =
       await Promise.all([
         this.resolveTembusanForPreview(
@@ -2800,6 +2866,17 @@ export class SdeMasalService {
       order: { urutan: 'ASC' },
     });
     const attachmentRefs = this.getAttachmentRefs(item, recipient);
+    const signedQrData = naskah.signOption === 'qr_only'
+      ? {
+          document_id: naskahId,
+          signature_id: '',
+          document_number: naskah.nomor || '',
+          signed_at: (naskah.createdAt || new Date()).toISOString(),
+          signer_name: pengirim?.namaSirkuler || '',
+          signer_jabatan: pengirim?.positionText || '',
+          document_type: 'Surat Dinas Eksternal',
+        }
+      : undefined;
     const headerInfo = await this.sdeService.getHeaderInfoByUser(
       {
         company: user?.company,
@@ -2833,6 +2910,8 @@ export class SdeMasalService {
       naskah.english === true,
       folder.atasNama || '',
       attachmentRefs.map((ref) => ({ fileName: ref.fileName, key: ref.key })),
+      naskah.signOption || undefined,
+      signedQrData,
     );
   }
 
@@ -3771,6 +3850,12 @@ export class SdeMasalService {
     const totalMenungguVerifikasi = rows.filter(
       (row) => row.statusVerifikasi === 'MENUNGGU_VERIFIKASI',
     ).length;
+    const allEmailsSent =
+      totalItems > 0 &&
+      rows.every((row) => {
+        const recipient = this.parseRecipientData(row);
+        return String(recipient.emailSentAt || '').trim().length > 0;
+      });
 
     // Penolakan pengirim mengembalikan folder ke konseptor, sementara item
     // yang sudah diverifikasi tetap berstatus TERVERIFIKASI. Jangan biarkan
@@ -3790,7 +3875,7 @@ export class SdeMasalService {
     } else if (totalItems === 0) {
       folder.status = 'DRAFT';
     } else if (totalTerkirim === totalItems) {
-      folder.status = 'TERKIRIM';
+      folder.status = allEmailsSent ? 'TERKIRIM' : 'SIAP_KIRIM';
     } else if (totalTerkirim > 0 || totalGagal > 0) {
       folder.status = 'SEBAGIAN_TERKIRIM';
     } else if (totalMenungguVerifikasi > 0) {

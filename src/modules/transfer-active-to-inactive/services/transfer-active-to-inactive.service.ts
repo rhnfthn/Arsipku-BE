@@ -581,6 +581,42 @@ export class TransferActiveToInactiveService {
     const search = filter?.search?.trim() || '';
     const filterKlasifikasi = filter?.klasifikasi?.trim() || '';
     const filterTahun = filter?.tahun?.trim() || '';
+    const searchQuery = search.toLowerCase();
+    const statusSearchLabels: Record<string, string> = {
+      DRAFT: 'Draft',
+      MENUNGGU_VERIFIKASI_ATASAN: 'Menunggu Persetujuan',
+      DITOLAK_ATASAN: 'Ditolak',
+      DISETUJUI_ATASAN: 'Menunggu Persetujuan',
+      MENUNGGU_VERIFIKASI_TERAKHIR: 'Menunggu Persetujuan',
+      DITOLAK_VERIFIKASI_TERAKHIR: 'Ditolak',
+      USUL_PINDAH_DIKIRIM: 'Menunggu TTD',
+      DISETUJUI_VERIFIKASI_TERAKHIR: 'Menunggu Verifikasi',
+      SIAPKAN_BERKAS_FISIK: 'Menunggu Verifikasi',
+      DIKIRIM: 'Menunggu Verifikasi',
+      MENUNGGU_VERIFIKASI_BERKAS_FISIK: 'Menunggu Verifikasi',
+      BERKAS_FISIK_TIDAK_SESUAI: 'Ditolak',
+      BERKAS_FISIK_SESUAI: 'Menunggu Verifikasi',
+      MENUNGGU_VERIFIKASI_PERSETUJUAN_TU: 'Menunggu Penerimaan',
+      DITOLAK_PERSETUJUAN_TU: 'Ditolak',
+      DISETUJUI_PERSETUJUAN_TU: 'Menunggu Penerimaan',
+      MENUNGGU_PERSETUJUAN_TERAKHIR_TU: 'Menunggu Penerimaan',
+      DITOLAK_PERSETUJUAN_TERAKHIR_TU: 'Ditolak',
+      MENUNGGU_TTD_PIHAK_KEDUA: 'Menunggu Tanda Tangan Pihak Kedua',
+      DISETUJUI_PERSETUJUAN_TERAKHIR_TU: 'Menunggu Tanda Tangan Pihak Kedua',
+      ARSIP_INAKTIF_DITERIMA: 'Menunggu Penataan',
+      PENATAAN_ARSIP_INAKTIF: 'Penataan Arsip Inaktif',
+      SELESAI: 'Selesai',
+    };
+    const matchesSearch = (status: string | null | undefined, ...values: unknown[]) => {
+      if (!searchQuery) return true;
+      const statusValue = String(status ?? '');
+      return [
+        ...values,
+        statusValue,
+        statusValue.replace(/_/g, ' '),
+        statusSearchLabels[statusValue] ?? '',
+      ].some((value) => String(value ?? '').toLowerCase().includes(searchQuery));
+    };
 
     // Evaluasi retensi on-demand: status berkas di tabel gabungan selalu segar.
     await this.arsipDinamisService.tutupBerkasRetensiHabis();
@@ -665,13 +701,17 @@ export class TransferActiveToInactiveService {
 
     // Arsip belum jadi usulan → status "Draft"
     for (const b of berkasBelumUsulan) {
-      if (search) {
-        const q = search.toLowerCase();
-        const match =
-          (b.kodeBerkas ?? '').toLowerCase().includes(q) ||
-          b.judulBerkas.toLowerCase().includes(q);
-        if (!match) continue;
-      }
+      if (
+        !matchesSearch(
+          'DRAFT',
+          b.kodeBerkas,
+          b.judulBerkas,
+          b.klasifikasi,
+          b.klasifikasiTeks,
+          b.lokasi,
+        )
+      )
+        continue;
       if (filterKlasifikasi) {
         const bk = (b.klasifikasi ?? '').toLowerCase();
         const bkt = (b.klasifikasiTeks ?? '').toLowerCase();
@@ -707,19 +747,24 @@ export class TransferActiveToInactiveService {
     // Usulan yang sudah dibuat
     for (const u of usulanList) {
       const arsipUtamaId = u.arsipIds?.[0]?.id || u.arsipId;
-      if (search) {
-        const q = search.toLowerCase();
-        const match =
-          (u.arsipKode ?? '').toLowerCase().includes(q) ||
-          u.arsipPerihal.toLowerCase().includes(q) ||
-          (u.atasanName ?? '').toLowerCase().includes(q) ||
-          u.nomorUsulan.toLowerCase().includes(q);
-        if (!match) continue;
-      }
+      const entry = berkasKlasifikasiMap.get(arsipUtamaId);
+      if (
+        !matchesSearch(
+          u.status,
+          u.arsipKode,
+          u.arsipPerihal,
+          u.atasanName,
+          u.nomorUsulan,
+          entry?.kode,
+          entry?.teks,
+          entry?.lokasiFisik,
+          u.bacSignedAt ? 'BAC Ditandatangani' : '',
+        )
+      )
+        continue;
       if (filter?.status && u.status !== filter.status) continue;
       if (filterKlasifikasi) {
         const fk = filterKlasifikasi.toLowerCase();
-        const entry = berkasKlasifikasiMap.get(arsipUtamaId);
         const kode = (entry?.kode ?? '').toLowerCase();
         const teks = (entry?.teks ?? '').toLowerCase();
         if (kode !== fk && !teks.includes(fk) && !kode.includes(fk)) continue;
@@ -973,28 +1018,110 @@ export class TransferActiveToInactiveService {
         : false,
     );
 
-    return copies.map((item) => ({
-      id: item.id,
-      nomorUsulan: item.nomorUsulan,
-      arsipPerihal: item.arsipPerihal,
-      arsipKode: item.arsipKode,
-      tanggalUsulan: item.tanggalUsulan,
-      status: item.status,
-      beritaAcaraNomor: item.beritaAcaraNomor,
-      bacPihakPertamaName: item.bacPihakPertamaName,
-      bacPihakPertamaJabatan: item.bacPihakPertamaJabatan,
-      bacPihakKeduaName: item.bacPihakKeduaName,
-      bacPihakKeduaJabatan: item.bacPihakKeduaJabatan,
-      bacPihakKeduaSignedAt: item.bacPihakKeduaSignedAt,
-      bacSignedAt: item.bacSignedAt,
-      bacStatus: item.bacSignedAt
-        ? 'SUDAH_DITANDATANGANI'
-        : 'MENUNGGU_TANDA_TANGAN',
-      // Preview memakai endpoint proxy /:id/berita-acara.pdf. Jangan
-      // membuat presigned URL MinIO saat memuat daftar: kegagalan MinIO
-      // sebelumnya membuat seluruh halaman tembusan ikut gagal 500.
-      beritaAcaraUrl: null,
-    }));
+    const arsipIds = Array.from(
+      new Set(
+        copies
+          .flatMap((item) => [
+            item.arsipId,
+            ...(Array.isArray(item.arsipIds)
+              ? item.arsipIds.map((archive) => archive?.id)
+              : []),
+          ])
+          .filter((id): id is string => typeof id === 'string' && id.length > 0),
+      ),
+    );
+    const arsipCodes = Array.from(
+      new Set(
+        copies
+          .flatMap((item) => [
+            item.arsipKode,
+            ...(Array.isArray(item.arsipIds)
+              ? item.arsipIds.map((archive) => archive?.kode)
+              : []),
+          ])
+          .filter((code): code is string => typeof code === 'string' && code.length > 0),
+      ),
+    );
+    const metadataByArsipId = new Map<
+      string,
+      { klasifikasi: string | null; klasifikasiKode: string | null; lokasi: string | null }
+    >();
+
+    if (arsipIds.length > 0 || arsipCodes.length > 0) {
+      const berkasList = await this.berkasRepo
+        .createQueryBuilder('b')
+        .select(['b.id', 'b.kodeBerkas', 'b.klasifikasiTeks', 'b.klasifikasi', 'b.lokasi'])
+        .where(
+          arsipIds.length > 0 && arsipCodes.length > 0
+            ? '(b.id IN (:...ids) OR b.kodeBerkas IN (:...codes))'
+            : arsipIds.length > 0
+              ? 'b.id IN (:...ids)'
+              : 'b.kodeBerkas IN (:...codes)',
+          { ids: arsipIds, codes: arsipCodes },
+        )
+        .getMany();
+
+      const klasifikasiCodes = berkasList
+        .map((berkas) => berkas.klasifikasi)
+        .filter((code): code is string => Boolean(code));
+      const klasifikasiRows = klasifikasiCodes.length > 0
+        ? await this.berkasRepo.manager
+            .createQueryBuilder()
+            .select('k.klasifikasi', 'kode')
+            .addSelect('k.klasifikasi_text', 'teks')
+            .from('klasifikasi', 'k')
+            .where('k.klasifikasi IN (:...codes)', { codes: klasifikasiCodes })
+            .getRawMany()
+        : [];
+      const klasifikasiMap = new Map(
+        klasifikasiRows.map((row: any) => [String(row.kode), row.teks ?? null]),
+      );
+
+      for (const berkas of berkasList) {
+        const metadata = {
+          klasifikasi:
+            berkas.klasifikasiTeks
+            ?? klasifikasiMap.get(String(berkas.klasifikasi ?? ''))
+            ?? berkas.klasifikasi
+            ?? null,
+          klasifikasiKode: berkas.klasifikasi ?? null,
+          lokasi: berkas.lokasi ?? null,
+        };
+        metadataByArsipId.set(berkas.id, metadata);
+        if (berkas.kodeBerkas) metadataByArsipId.set(`code:${berkas.kodeBerkas}`, metadata);
+      }
+    }
+
+    return copies.map((item) => {
+      const metadata = metadataByArsipId.get(
+        item.arsipIds?.[0]?.id ?? item.arsipId,
+      ) ?? metadataByArsipId.get(`code:${item.arsipIds?.[0]?.kode ?? item.arsipKode}`);
+      return {
+        id: item.id,
+        nomorUsulan: item.nomorUsulan,
+        arsipPerihal: item.arsipPerihal,
+        arsipKode: item.arsipKode,
+        arsipKlasifikasi: metadata?.klasifikasi ?? null,
+        arsipKlasifikasiKode: metadata?.klasifikasiKode ?? null,
+        arsipLokasiFisik: metadata?.lokasi ?? null,
+        tanggalUsulan: item.tanggalUsulan,
+        status: item.status,
+        beritaAcaraNomor: item.beritaAcaraNomor,
+        bacPihakPertamaName: item.bacPihakPertamaName,
+        bacPihakPertamaJabatan: item.bacPihakPertamaJabatan,
+        bacPihakKeduaName: item.bacPihakKeduaName,
+        bacPihakKeduaJabatan: item.bacPihakKeduaJabatan,
+        bacPihakKeduaSignedAt: item.bacPihakKeduaSignedAt,
+        bacSignedAt: item.bacSignedAt,
+        bacStatus: item.bacSignedAt
+          ? 'SUDAH_DITANDATANGANI'
+          : 'MENUNGGU_TANDA_TANGAN',
+        // Preview memakai endpoint proxy /:id/berita-acara.pdf. Jangan
+        // membuat presigned URL MinIO saat memuat daftar: kegagalan MinIO
+        // sebelumnya membuat seluruh halaman tembusan ikut gagal 500.
+        beritaAcaraUrl: null,
+      };
+    });
   }
 
   /**
@@ -1009,6 +1136,30 @@ export class TransferActiveToInactiveService {
     const item = await this.findOne(id, user);
     const storedValue = item.beritaAcaraUrl;
 
+    // Preview selalu dirender ulang dari template terbaru agar layout PDF
+    // konsisten dengan kartu BAC di halaman detail. QR tanda tangan tetap
+    // diambil dari entity, sehingga status/isi tanda tangan tidak berubah.
+    try {
+      const baData = await this.getBeritaAcaraData(id);
+      const html = this.buildBacHtml(
+        item,
+        baData,
+        item.bacSignatureQr ?? undefined,
+        'pihak_pertama',
+      );
+      const generatedPdf = await this.generatePdfService.generateRawPdf(html);
+      if (generatedPdf.subarray(0, 5).toString('ascii') !== '%PDF-') {
+        throw new Error('Hasil generate BAC bukan PDF yang valid');
+      }
+      return generatedPdf;
+    } catch (error) {
+      this.logger.warn(
+        `Gagal merender template terbaru BAC ${id}: ${error?.message ?? error}`,
+      );
+    }
+
+    // Fallback untuk data lama jika renderer gagal. File storage tetap hanya
+    // dipakai sebagai cadangan, bukan sebagai sumber utama layout preview.
     if (storedValue && !storedValue.endsWith('/berita-acara.pdf')) {
       try {
         let objectKey = storedValue;
@@ -1036,33 +1187,12 @@ export class TransferActiveToInactiveService {
         }
       } catch (error) {
         this.logger.warn(
-          `PDF BAC tersimpan ${id} tidak dapat dibaca, membuat preview ulang: ${error?.message ?? error}`,
+          `PDF BAC tersimpan ${id} tidak dapat dibaca sebagai fallback: ${error?.message ?? error}`,
         );
       }
     }
 
-    // Fallback untuk data lama yang hanya menyimpan endpoint placeholder atau
-    // file storage-nya sudah tidak tersedia. Render ulang template BAC sebagai
-    // PDF agar preview tetap dapat dibuka dari seluruh halaman.
-    try {
-      const baData = await this.getBeritaAcaraData(id);
-      const html = this.buildBacHtml(
-        item,
-        baData,
-        item.bacSignatureQr ?? undefined,
-        'pihak_pertama',
-      );
-      const generatedPdf = await this.generatePdfService.generateRawPdf(html);
-      if (generatedPdf.subarray(0, 5).toString('ascii') !== '%PDF-') {
-        throw new Error('Hasil generate BAC bukan PDF yang valid');
-      }
-      return generatedPdf;
-    } catch (error) {
-      this.logger.error(
-        `Gagal membuat preview PDF BAC ${id}: ${error?.message ?? error}`,
-      );
-      throw new NotFoundException('PDF Berita Acara tidak dapat dipreview');
-    }
+    throw new NotFoundException('PDF Berita Acara tidak dapat dipreview');
   }
 
   async findAll(filter: TransferFilterDto, user: any) {
@@ -1287,6 +1417,7 @@ export class TransferActiveToInactiveService {
           'b.klasifikasi',
           'b.klasifikasiTeks',
           'b.tindakanPenyusutanAkhir',
+          'b.lokasi',
         ])
         .where('b.id = :id', { id: item.arsipId })
         .getOne();
@@ -1296,6 +1427,7 @@ export class TransferActiveToInactiveService {
         (item as any).arsipKlasifikasiKode = berkas.klasifikasi ?? null;
         (item as any).arsipTindakanPenyusutan =
           berkas.tindakanPenyusutanAkhir ?? null;
+        (item as any).lokasiAwal = berkas.lokasi ?? null;
       }
     }
 
@@ -1964,9 +2096,9 @@ export class TransferActiveToInactiveService {
     const old = item.status;
     item.status = TransferActiveToInactiveStatus.DIKIRIM;
     item.tanggalDikirim = new Date();
-    // Tembusan BAC dari Sekretaris Divisi hanya berlaku pada tahap pihak pertama.
-    // TU memilih ulang penerima salinan saat mengajukan ke atasan managerial TU.
-    item.bacTembusan = [];
+    // Pertahankan tembusan BAC yang dipilih Sekretaris Divisi agar tetap
+    // tampil pada seluruh halaman detail/verifikasi. TU masih dapat
+    // menggantinya melalui payload pengajuan jika memang memilih daftar baru.
     const saved = await this.repo.save(item);
     this.logAudit(
       actor,
@@ -2494,11 +2626,17 @@ export class TransferActiveToInactiveService {
       .join('');
     const arsipMarkup =
       arsipList.length === 1
-        ? `<p style="margin:0 0 18px;">${escapeHtml(arsipList[0].kode ?? '-')} — ${escapeHtml(arsipList[0].perihal ?? '-')}</p>`
-        : `<ol style="margin:0 0 18px;padding-left:28px;">${arsipItems}</ol>`;
+        ? `<p style="margin:0 0 22px 84px;">${escapeHtml(arsipList[0].kode ?? '-')} — ${escapeHtml(arsipList[0].perihal ?? '-')}</p>`
+        : `<ol style="margin:0 0 22px 84px;padding-left:0;list-style:none;">${arsipItems}</ol>`;
 
-    const unitKerjaPengusulValue =
-      baData?.unitKerjaPengusul ?? baData?.pengirim?.divisi ?? item.divisiName ?? '.........';
+    const unitKerjaPengusulValue = [
+      baData?.unitKerjaPengusul,
+      baData?.pengirim?.divisi,
+      baData?.pengirim?.unitKerja,
+      item.divisiName,
+    ]
+      .map((value) => String(value ?? '').trim())
+      .find((value) => value && !/^\.{3,}$/.test(value)) ?? '.........';
     const unitKerjaPengusul = escapeHtml(unitKerjaPengusulValue);
     const unitKerjaTu = escapeHtml(baData?.unitKerjaTu ?? 'UC');
     const unitKerjaPihakPertama = escapeHtml(
@@ -2521,31 +2659,40 @@ export class TransferActiveToInactiveService {
       ? qrCodeDataUrl
       : item.bacPihakKeduaSignatureQr ?? undefined;
     const ttdMarkup = pihakPertamaQr
-      ? `<div style="height:82px;width:82px;margin:0 0 10px;"><img src="${pihakPertamaQr}" alt="QR tanda tangan Pihak Pertama" style="display:block;width:82px;height:82px;object-fit:contain;" /></div>`
-      : '<p style="margin:0 0 58px;">Ttd</p>';
+      ? `<div style="height:92px;width:82px;margin:0 auto 10px;"><img src="${pihakPertamaQr}" alt="QR tanda tangan Pihak Pertama" style="display:block;width:82px;height:82px;object-fit:contain;" /></div>`
+      : '<p style="margin:0 0 78px;">Ttd</p>';
     const pihakKeduaTtdMarkup = pihakKeduaQr
-      ? `<div style="height:82px;width:82px;margin:0 0 10px;"><img src="${pihakKeduaQr}" alt="QR tanda tangan Pihak Kedua" style="display:block;width:82px;height:82px;object-fit:contain;" /></div>`
-      : '<p style="margin:0 0 58px;">Ttd</p>';
+      ? `<div style="height:92px;width:82px;margin:0 auto 10px;"><img src="${pihakKeduaQr}" alt="QR tanda tangan Pihak Kedua" style="display:block;width:82px;height:82px;object-fit:contain;" /></div>`
+      : '<p style="margin:0 0 78px;">Ttd</p>';
+    const pihakKeduaDiperlukan = Boolean(
+      item.bacPihakKeduaPersnum || pihakKedua.nama,
+    );
+    const seluruhTandaTanganSelesai = Boolean(
+      item.bacSignedAt &&
+        (!pihakKeduaDiperlukan ||
+          item.bacPihakKeduaSignedAt ||
+          signerType === 'pihak_kedua'),
+    );
 
     return `
-      <div class="bac-document" style="font-family:'Times New Roman',Times,serif;font-size:12pt;line-height:1.65;font-weight:400;">
+      <div class="bac-document" style="font-family:'Times New Roman',Times,serif;font-size:12pt;line-height:1.55;font-weight:400;">
         <style>
           .bac-document, .bac-document * { font-weight: 400 !important; }
         </style>
-        <div style="text-align:center;margin:0 0 18px;">
-          <p style="margin:0;text-decoration:underline;">BERITA ACARA</p>
+        <div style="text-align:center;margin:0 0 24px;">
+          <p style="margin:0;">BERITA ACARA</p>
           <p style="margin:0;">TENTANG</p>
           <p style="margin:0;text-transform:uppercase;">PEMINDAHAN ARSIP INAKTIF TAHUN ${tahun} - UNIT KERJA ${unitKerjaPengusul}</p>
           <p style="margin:8px 0 0;">Nomor : ${nomorBa}</p>
         </div>
 
-        <p style="margin:0 0 18px;text-align:justify;">Pada hari ini ${hari(item.tanggalUsulan)} tanggal ${fmt(item.tanggalUsulan)}, dilaksanakan pemindahan arsip inaktif dari Unit Kerja ${unitKerjaPengusul} ke Unit Kerja ${unitKerjaTu} yang melibatkan:</p>
+        <p style="margin:0 0 22px;text-align:justify;">Pada hari ini ${hari(item.tanggalUsulan)} tanggal ${fmt(item.tanggalUsulan)}, dilaksanakan pemindahan arsip inaktif dari Unit Kerja ${unitKerjaPengusul} ke Unit Kerja ${unitKerjaTu} yang melibatkan:</p>
 
-        <table style="width:calc(100% - 42px);margin:0 0 18px 42px;border:0;border-collapse:collapse;">
+        <table style="width:calc(100% - 42px);margin:0 0 12px 42px;border:0;border-collapse:collapse;table-layout:fixed;">
           <tr>
-            <td style="width:68px;padding:0;vertical-align:top;">1.</td>
-            <td style="width:110px;padding:0;vertical-align:top;">Nama</td>
-            <td style="width:24px;padding:0;vertical-align:top;">:</td>
+            <td style="width:42px;padding:0;vertical-align:top;">1.</td>
+            <td style="width:92px;padding:0;vertical-align:top;">Nama</td>
+            <td style="width:22px;padding:0;vertical-align:top;">:</td>
             <td style="padding:0;vertical-align:top;">${escapeHtml(pihakPertama.nama)}</td>
           </tr>
           <tr>
@@ -2561,15 +2708,13 @@ export class TransferActiveToInactiveService {
             <td style="padding:0;vertical-align:top;">${escapeHtml(pihakPertama.jabatan)}</td>
           </tr>
         </table>
-        <div style="margin:0 0 18px;padding-left:42px;">
-          <p style="margin:18px 0 0;text-align:justify;">Dalam hal ini bertindak atas nama pimpinan Unit Kerja ${unitKerjaPihakPertama} yang selanjutnya disebut PIHAK PERTAMA.</p>
-        </div>
+        <p style="margin:18px 0 22px;padding-left:84px;text-align:justify;">Dalam hal ini bertindak atas nama pimpinan Unit Kerja ${unitKerjaPihakPertama} yang selanjutnya disebut PIHAK PERTAMA.</p>
 
-        <table style="width:calc(100% - 42px);margin:0 0 18px 42px;border:0;border-collapse:collapse;">
+        <table style="width:calc(100% - 42px);margin:0 0 12px 42px;border:0;border-collapse:collapse;table-layout:fixed;">
           <tr>
-            <td style="width:68px;padding:0;vertical-align:top;">2.</td>
-            <td style="width:110px;padding:0;vertical-align:top;">Nama</td>
-            <td style="width:24px;padding:0;vertical-align:top;">:</td>
+            <td style="width:42px;padding:0;vertical-align:top;">2.</td>
+            <td style="width:92px;padding:0;vertical-align:top;">Nama</td>
+            <td style="width:22px;padding:0;vertical-align:top;">:</td>
             <td style="padding:0;vertical-align:top;">${escapeHtml(pihakKedua.nama)}</td>
           </tr>
           <tr>
@@ -2585,29 +2730,32 @@ export class TransferActiveToInactiveService {
             <td style="padding:0;vertical-align:top;">${escapeHtml(pihakKedua.jabatan)}</td>
           </tr>
         </table>
-        <div style="margin:0 0 18px;padding-left:42px;">
-          <p style="margin:18px 0 0;text-align:justify;">Dalam hal ini bertindak atas nama pimpinan Unit Kerja ${unitKerjaPihakKedua} yang selanjutnya disebut PIHAK KEDUA.</p>
-        </div>
+        <p style="margin:18px 0 26px;padding-left:84px;text-align:justify;">Dalam hal ini bertindak atas nama pimpinan Unit Kerja ${unitKerjaPihakKedua} yang selanjutnya disebut PIHAK KEDUA.</p>
 
-        <p style="margin:26px 0 18px;text-align:justify;">Menyatakan telah melaksanakan serah terima pemindahan arsip inaktif seperti tercantum pada daftar arsip terlampir.</p>
-        <p style="margin:0 0 4px;">Daftar arsip:</p>
+        <p style="margin:0 0 22px 84px;text-align:justify;">Menyatakan telah melaksanakan serah terima pemindahan arsip inaktif seperti tercantum pada daftar arsip terlampir.</p>
+        <p style="margin:0 0 4px 84px;">Daftar arsip:</p>
         ${arsipMarkup}
 
-        <p style="margin:0 0 42px;text-align:justify;">Demikian Berita Acara ini dibuat untuk dapat dipergunakan sebagaimana mestinya.</p>
+        <p style="margin:0 0 58px 84px;text-align:justify;">Demikian Berita Acara ini dibuat untuk dapat dipergunakan sebagaimana mestinya.</p>
         <table style="width:100%;border:0;margin:0;">
           <tr>
-            <td style="width:50%;text-align:left;vertical-align:top;">
-              <p style="margin:0 0 16px;">Pihak Pertama</p>
+            <td style="width:50%;text-align:center;vertical-align:top;">
+              <p style="margin:0 0 20px;">Pihak Pertama</p>
               {{ttd}}
               <p style="margin:0;">(${escapeHtml(pihakPertama.jabatan)})</p>
             </td>
-            <td style="width:50%;text-align:left;vertical-align:top;">
-              <p style="margin:0 0 16px;">Pihak Kedua</p>
+            <td style="width:50%;text-align:center;vertical-align:top;">
+              <p style="margin:0 0 20px;">Pihak Kedua</p>
               ${pihakKeduaTtdMarkup}
               <p style="margin:0;">(${escapeHtml(pihakKedua.jabatan || 'Jabatan')})</p>
             </td>
           </tr>
         </table>
+        ${
+          seluruhTandaTanganSelesai
+            ? `<p style="margin:28px 0 0;text-align:center;font-size:9pt;line-height:1.35;">Dokumen ini telah ditandatangani secara elektronik menggunakan sertifikat elektronik<br/>yang diterbitkan oleh Balai Besar Sertifikasi Elektronik (BSrE), Badan Siber dan Sandi Negara</p>`
+            : ''
+        }
       </div>
     `.replace(ttdTokenRegex, ttdMarkup);
   }
@@ -3118,9 +3266,14 @@ export class TransferActiveToInactiveService {
       this.getDaftarIsi(id),
       this.getBeritaAcaraData(id),
     ]);
-    const unitKerja = String(
-      beritaAcaraData?.unitKerjaPengusul || item.divisiName || '',
-    ).trim() || '-';
+    const unitKerja = [
+      beritaAcaraData?.unitKerjaPengusul,
+      beritaAcaraData?.pengirim?.divisi,
+      (beritaAcaraData?.pengirim as any)?.unitKerja,
+      item.divisiName,
+    ]
+      .map((value) => String(value ?? '').trim())
+      .find((value) => value && !/^\.{3,}$/.test(value)) ?? '-';
     const archiveRows = (daftar.daftarBerkas ?? []).map((row: any) => ({
       ...row,
       lokasiSimpan: item.lokasiPenataan || row.lokasiSimpan || '-',
