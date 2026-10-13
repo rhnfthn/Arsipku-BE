@@ -658,6 +658,41 @@ export class PersonService {
       .where('person.persnum IN (:...ids)', { ids })
       .orderBy('person.createAt', 'DESC')
       .addOrderBy('person.id', 'DESC');
+    if (sameUnit) {
+      const ranks = [
+        /\bEVP\b|\bExecutive\s+Vice\s+President\b/i,
+        /\bVP\b|\bVice\s+President\b/i,
+        /\bAVP\b|\bAssistant\s+Vice\s+President\b/i,
+      ];
+      const rankedIds: number[][] = [[], [], []];
+      for (const entry of entries) {
+        const title = entry.position_text || '';
+        // Match the longer title before the shared "Vice President" phrase.
+        const rank = ranks[0].test(title)
+          ? 0
+          : ranks[2].test(title)
+            ? 2
+            : ranks[1].test(title)
+              ? 1
+              : -1;
+        if (rank >= 0) rankedIds[rank].push(Number(entry.persnum));
+      }
+      const clauses: string[] = [];
+      const parameters: Record<string, number[]> = {};
+      rankedIds.forEach((persnums, rank) => {
+        if (!persnums.length) return;
+        const key = `signerRank${rank}`;
+        clauses.push(`WHEN person.persnum IN (:...${key}) THEN ${rank}`);
+        parameters[key] = persnums;
+      });
+      if (clauses.length) {
+        query
+          .setParameters(parameters)
+          .orderBy(`CASE ${clauses.join(' ')} ELSE 3 END`, 'ASC')
+          .addOrderBy('person.createAt', 'DESC')
+          .addOrderBy('person.id', 'DESC');
+      }
+    }
     if (!paginated) {
       const persons = await query.getMany();
       return persons.map((person) => positionMap.get(person.persnum!)!);

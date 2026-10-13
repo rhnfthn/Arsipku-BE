@@ -466,6 +466,15 @@ export class RealtimeGateway
     this.server.to(`position:${positionId}`).emit('flag:update', payload);
   }
 
+  /**
+   * Emit status pemberkasan naskah (kolom Status Berkas KM/Terkirim) ke
+   * position pemilik sirkulasi agar label sinkron tanpa refresh manual.
+   */
+  emitBerkasUpdate(positionId: string, payload: any) {
+    if (!this.server) return;
+    this.server.to(`position:${positionId}`).emit('berkas:update', payload);
+  }
+
   /** Broadcast perubahan konfigurasi routing setelah transaksi DB committed. */
   emitCorrespondenceRoutingUpdate(payload: {
     mutationId: string;

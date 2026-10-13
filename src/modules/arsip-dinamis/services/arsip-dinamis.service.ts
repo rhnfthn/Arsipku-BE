@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In, EntityManager } from 'typeorm';
@@ -28,6 +29,8 @@ import { PDFDocument } from 'pdf-lib';
 
 @Injectable()
 export class ArsipDinamisService {
+  private readonly logger = new Logger(ArsipDinamisService.name);
+
   constructor(
     @InjectRepository(Berkas)
     private readonly berkasRepository: Repository<Berkas>,
@@ -858,6 +861,47 @@ export class ArsipDinamisService {
     const insertedCount = Number(insertResult.raw?.affectedRows ?? 0);
     const alreadyExistsCount = newEntries.length - insertedCount;
 
+    // Emit realtime berkas:update ke semua position pemilik sirkulasi
+    // naskah yang berhasil ditambahkan — agar kolom Status Berkas di
+    // Kotak Masuk/Terkirim user lain (mis. sekretaris atas nama atasan)
+    // langsung sinkron tanpa refresh manual. Fail-safe: gagal emit
+    // tidak menggagalkan operasi.
+    if (insertedCount > 0) {
+      try {
+        const positionsByNaskah = new Map<string, Set<string>>();
+        for (const { naskahId } of newEntries) {
+          const rows: any[] = await this.dataSource.query(
+            `SELECT DISTINCT position FROM naskah_sirkulasi
+             WHERE id_naskah = ?
+               AND position IS NOT NULL
+               AND sirkuler IN ('pengirim', 'penerima', 'tembusan')`,
+            [naskahId],
+          );
+          const positions = positionsByNaskah.get(naskahId) ?? new Set<string>();
+          rows.forEach((r: any) => positions.add(String(r.position)));
+          positionsByNaskah.set(naskahId, positions);
+        }
+        const occurredAt = new Date().toISOString();
+        for (const [naskahId, positions] of positionsByNaskah) {
+          for (const positionId of positions) {
+            this.realtimeEmitService.emitBerkasUpdate(positionId, {
+              naskah_id: naskahId,
+              action: 'add',
+              berkas_id: berkas.id,
+              kode_berkas: berkas.kodeBerkas,
+              judul_berkas: berkas.judulBerkas,
+              berkas_status: berkas.status,
+              occurred_at: occurredAt,
+            });
+          }
+        }
+      } catch (error) {
+        this.logger.warn(
+          `Gagal mengirim pembaruan status berkas: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+
     const message = [
       insertedCount > 0 ? `${insertedCount} naskah berhasil ditambahkan` : null,
       alreadyExistsCount > 0
@@ -904,6 +948,34 @@ export class ArsipDinamisService {
     }
 
     await this.berkasNaskahRepository.remove(relasi);
+
+    // Emit realtime berkas:update ke semua position pemilik sirkulasi agar
+    // label Status Berkas kembali ke "Belum Diberkaskan" tanpa refresh.
+    // Fail-safe: gagal emit tidak menggagalkan operasi.
+    try {
+      const positions: any[] = await this.dataSource.query(
+        `SELECT DISTINCT position FROM naskah_sirkulasi
+         WHERE id_naskah = ?
+           AND position IS NOT NULL
+           AND sirkuler IN ('pengirim', 'penerima', 'tembusan')`,
+        [naskahId],
+      );
+      const occurredAt = new Date().toISOString();
+      for (const row of positions) {
+        this.realtimeEmitService.emitBerkasUpdate(String(row.position), {
+          naskah_id: naskahId,
+          action: 'remove',
+          berkas_id: berkas.id,
+          kode_berkas: berkas.kodeBerkas,
+          judul_berkas: berkas.judulBerkas,
+          berkas_status: berkas.status,
+          occurred_at: occurredAt,
+        });
+      }
+    } catch {
+      // ignore — realtime sync best-effort
+    }
+
     return { message: 'Naskah berhasil dihapus dari berkas' };
   }
 

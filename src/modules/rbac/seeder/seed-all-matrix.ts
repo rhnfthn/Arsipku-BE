@@ -136,6 +136,14 @@ const rbacManagementResources: {
       { action: 'update-tertuju', description: 'Button Edit Tertuju' },
       { action: 'delete-tertuju', description: 'Button Hapus Tertuju' },
       { action: 'export-tertuju', description: 'Button Export Tertuju' },
+      {
+        action: 'create-usulan-tertuju',
+        description: 'Ajukan usulan tertuju eksternal (semua user)',
+      },
+      {
+        action: 'verify-usulan-tertuju',
+        description: 'Verifikasi usulan tertuju eksternal (TU)',
+      },
       { action: 'read-perusahaan', description: 'Halaman Perusahaan' },
       { action: 'create-perusahaan', description: 'Button Tambah Perusahaan' },
       { action: 'update-perusahaan', description: 'Button Edit Perusahaan' },

@@ -618,6 +618,30 @@ export class OrganizationTuService {
     return roles;
   }
 
+  /**
+   * Resolve area_id aktif untuk persnum (dari organization_tu).
+   * Dipakai untuk scoping verifikasi usulan tertuju per area TU.
+   * Return area_id pertama yang non-null; null jika tidak ada assignment.
+   */
+  async getActiveAreaForPersnum(
+    persnum: number,
+    today = new Date(),
+  ): Promise<string | null> {
+    const todayStr = today.toISOString().split('T')[0];
+    const assignments = await this.repo
+      .createQueryBuilder('ot')
+      .where('ot.persnum = :persnum', { persnum })
+      .andWhere('ot.is_active = :active', { active: true })
+      .andWhere('ot.valid_from <= :today', { today: todayStr })
+      .andWhere('(ot.valid_to IS NULL OR ot.valid_to >= :today)', {
+        today: todayStr,
+      })
+      .getMany();
+
+    const withArea = assignments.find((a) => a.area_id);
+    return withArea?.area_id ?? null;
+  }
+
   // ============================================
   // Integrasi Delegasi — dipanggil saat create delegasi dengan position_status SE
   // ============================================
