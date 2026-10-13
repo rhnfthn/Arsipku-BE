@@ -159,6 +159,12 @@ export class CreateSuratDinasEksternalDto {
   @IsArray()
   tembusan?: number[]; // array of positionId untuk tembusan
 
+  /** Label tembusan tambahan khusus render PDF SDE Massal (tidak membuat sirkulasi internal). */
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  tembusan_pdf_tambahan?: string[];
+
   // ============================================
   // LAMPIRAN
   // ============================================

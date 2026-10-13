@@ -194,9 +194,11 @@ export class SdeMasalController {
       success: true,
       data,
       message: data.failed > 0
-        ? `${data.sent} ${data.deliveryType === 'INTERNAL' ? 'naskah ke Kotak Masuk' : 'email'} berhasil dikirim, ${data.failed} gagal.`
+        ? `${data.sent} naskah berhasil dikirim (ke Kotak Masuk atau email), ${data.failed} gagal.`
         : data.deliveryType === 'INTERNAL'
           ? 'Semua naskah berhasil dikirim ke Kotak Masuk.'
+          : data.deliveryType === 'MIXED'
+            ? 'Semua naskah berhasil dikirim ke penerima masing-masing.'
           : 'Semua email berhasil dikirim.',
     };
   }
@@ -646,9 +648,8 @@ export class SdeMasalController {
   /**
    * GET /sde-masal/naskah/:naskahId/preview-pdf
    *
-   * Untuk BSrE endpoint mengirim file final asli agar signature tetap valid.
-   * Naskah non-BSrE dapat dirender dari data Excel penerima untuk menjaga
-   * seluruh placeholder tetap terisi pada preview/print Terkirim.
+   * Kirim file final asli untuk setiap metode tanda tangan agar preview
+   * tetap sama dengan hasil finalisasi, termasuk tertuju dan lampirannya.
    */
   @Get('naskah/:naskahId/preview-pdf')
   @RequirePermission('sde-masal', 'read-detail')
@@ -666,6 +667,7 @@ export class SdeMasalController {
         'Content-Type': 'application/pdf',
         'Content-Disposition': `inline; filename="preview-sde-masal-${naskahId}.pdf"`,
         'Content-Length': pdf.length,
+        'Cache-Control': 'no-store',
       });
       return res.status(HttpStatus.OK).send(pdf);
     } catch (error) {

@@ -2467,6 +2467,14 @@ export class SuratDinasEksternalService {
             t.position_status ?? t.positionStatus,
           ),
       );
+      // SDE Massal dapat menambahkan tembusan eksternal sebagai label PDF.
+      // Label ini hanya ikut footer PDF dan tidak memengaruhi sirkulasi SDE.
+      const tembusanPdfTextList = [
+        ...(dto.tembusan_pdf_tambahan || []).filter((label) =>
+          String(label || '').trim(),
+        ),
+        ...tembusanTextList,
+      ];
       const tembusanText =
         tembusanTextList.length > 0 ? tembusanTextList.join('\n') : null;
 
@@ -2570,10 +2578,10 @@ export class SuratDinasEksternalService {
                 kepadaYthList.map((p) => this.titelaturTranslateService.translateCombined(p)),
               ),
               Promise.all(
-                tembusanTextList.map((t) => this.titelaturTranslateService.translateCombined(t)),
+                tembusanPdfTextList.map((t) => this.titelaturTranslateService.translateCombined(t)),
               ),
             ])
-          : [finalPositionText, kepadaYthList, tembusanTextList];
+          : [finalPositionText, kepadaYthList, tembusanPdfTextList];
 
         pdfBuffer = await this.generatePdfSudinService.generatePdf({
           html: renderedKonten,

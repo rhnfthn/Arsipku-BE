@@ -396,10 +396,10 @@ export class SdeMasalService {
       );
     }
 
-    const resolvedPenerimaList =
-      folder?.recipientType === 'INTERNAL'
-        ? await this.resolveInternalRecipients(penerimaList)
-        : penerimaList;
+    const resolvedPenerimaList = await this.resolveRecipientTypes(
+      penerimaList,
+      folder?.recipientType === 'INTERNAL',
+    );
 
     // Request ulang untuk folder yang sama harus idempotent. `no` adalah
     // identitas baris Excel; lampiran sengaja tidak dijadikan pembeda karena
@@ -427,6 +427,7 @@ export class SdeMasalService {
               (key) =>
                 ![
                   'tertuju',
+                  'id_tertuju',
                   'perihal',
                   'tembusan',
                   'tembusan_internal',
@@ -453,7 +454,7 @@ export class SdeMasalService {
         if (existingKeys.has(recipientKey)) {
           const existing = existingItemsByKey.get(recipientKey);
           if (
-            folder?.recipientType === 'INTERNAL' &&
+            p.recipientType === 'INTERNAL' &&
             existing &&
             !existing.naskahId &&
             ['MENUNGGU', 'DITOLAK', 'GAGAL'].includes(
@@ -563,20 +564,49 @@ export class SdeMasalService {
       );
     }
 
-    const recipient = this.normalizeMassalRecipient(
-      this.parseRecipientData(item),
+    const [typedRecipient] = await this.resolveRecipientTypes(
+      [this.parseRecipientData(item)],
+      folder.recipientType === 'INTERNAL',
     );
+    const recipient = this.normalizeMassalRecipient(typedRecipient);
     const attachmentRefs = this.getAttachmentRefs(item, recipient);
-    const isInternalRecipient = folder.recipientType === 'INTERNAL';
+    const isInternalRecipient =
+      recipient.recipientType === 'INTERNAL' ||
+      (!recipient.recipientType && folder.recipientType === 'INTERNAL');
+    const internalRecipientName = String(
+      recipient.employeeName ||
+        recipient.variables?.nama ||
+        recipient.nama ||
+        String(recipient.tertuju || '').split(' — ')[0] ||
+        '',
+    ).trim();
+    if (isInternalRecipient && !internalRecipientName) {
+      throw new BadRequestException(
+        'Nama penerima internal tidak ditemukan. Periksa kembali ID karyawan pada data SDE Massal sebelum menandatangani.',
+      );
+    }
     const external = isInternalRecipient
       ? null
       : await this.resolveRecipientExternal(folder, item, recipient);
-    // Resolve tembusan eksternal ke list bernomor dengan nama eksternal
-    const tembusanList = await this.resolveTembusanList(folder, {
-      ...recipient,
-      tembusan: recipient.tembusanEksternal || recipient.tembusan || '',
-    });
-    const internalTembusan = this.parseInternalTembusan(recipient);
+    // Tembusan eksternal tidak masuk ke dto.tembusan milik SDE (field itu
+    // khusus posisi internal), jadi dikirim sebagai label footer PDF terpisah.
+    const tembusanEksternalRaw = String(
+      recipient.tembusanEksternal ||
+        recipient.tembusan_eksternal ||
+        recipient.variables?.tembusan_eksternal ||
+        recipient.variables?.tembusanEksternal ||
+        recipient.tembusan ||
+        '',
+    );
+    const tembusanEksternalNames = await this.resolveTembusanForPreview(
+      tembusanEksternalRaw,
+      '',
+      tanggal,
+    );
+    const internalTembusan = this.parseInternalTembusan(
+      recipient,
+      orgData?.position_json || [],
+    );
     const authorityPositionId = Number(folder.atasNamaPositionId);
     if (
       Number.isFinite(authorityPositionId) &&
@@ -585,12 +615,24 @@ export class SdeMasalService {
     ) {
       internalTembusan.push(authorityPositionId);
     }
+    const tembusanInternalNames = await this.resolveTembusanForPreview(
+      '',
+      internalTembusan.join(';'),
+      tanggal,
+    );
+    const formatTembusanHtml = (names: string[]) =>
+      names.map((nama, index) => `${index + 1}. ${nama}`).join('<br>');
+    const tembusanEksternalHtml = formatTembusanHtml(tembusanEksternalNames);
+    const tembusanInternalHtml = formatTembusanHtml(tembusanInternalNames);
+    const tembusanGabunganHtml = formatTembusanHtml([
+      ...tembusanEksternalNames,
+      ...tembusanInternalNames,
+    ]);
     const konten = this.renderFolderKonten(folder, item, {
       ...recipient,
-      tembusan:
-        tembusanList || recipient.tembusanEksternal || recipient.tembusan || '',
-      tembusan_internal: internalTembusan.join(';'),
-      tembusan_eksternal: recipient.tembusanEksternal || '',
+      tembusan: tembusanGabunganHtml,
+      tembusan_internal: tembusanInternalHtml,
+      tembusan_eksternal: tembusanEksternalHtml,
     });
     const normalizedSignOption = signOption || folder.signOption || 'qr_only';
 
@@ -598,7 +640,7 @@ export class SdeMasalService {
       pengirim: Number(folder.pengirimId),
       penerima: external ? [external.id] : [],
       penerima_display: isInternalRecipient
-        ? [String(recipient.tertuju || recipient.employeeName || '')]
+        ? [internalRecipientName]
         : undefined,
       tgl: tanggal,
       id_referensi_naskah: folder.parentNaskahId || undefined,
@@ -616,6 +658,9 @@ export class SdeMasalService {
         ? Number(folder.atasNamaPositionId)
         : undefined,
       tembusan: internalTembusan,
+      // Dipakai hanya untuk daftar tembusan pada PDF SDE Massal. Alur SDE
+      // biasa tetap memakai field `tembusan` internal seperti sebelumnya.
+      tembusan_pdf_tambahan: tembusanEksternalNames,
       sign_option: normalizedSignOption as SignOption,
       passphrase,
       lampiran:
@@ -630,6 +675,9 @@ export class SdeMasalService {
             }))
           : undefined,
     };
+    // Simpan tipe + identitas penerima yang sudah di-resolve bersama item;
+    // dipakai kembali oleh dispatch dan tampilan detail folder.
+    item.recipientData = JSON.stringify(recipient);
 
     if (
       creatorPosition &&
@@ -660,12 +708,21 @@ export class SdeMasalService {
       item.errorMessage = null;
       await this.repo.save(item);
       // Penerima internal belum boleh melihat naskah di Kotak Masuk sebelum
-      // konseptor menekan tombol kirim pada detail folder.
+      // dokumen benar-benar selesai ditandatangani. Untuk tanda tangan Portal
+      // TTE, pengiriman dilakukan oleh completePortalItem setelah callback.
       if (isInternalRecipient) {
         await this.sirkulasiRepository.update(
           { idNaskah: data.id, sirkuler: 'pengirim' },
           { isDraft: true },
         );
+        if (!deferPortalRequest) {
+          await this.deliverInternalRecipientAfterFinalization(
+            folder,
+            item,
+            recipient,
+            pengirim,
+          );
+        }
       }
       await this.addExternalTembusan(data.id, item, recipient, data.status);
       // Tembusan internal sudah dibuat oleh alur SDE biasa melalui
@@ -704,7 +761,36 @@ export class SdeMasalService {
     }
   }
 
-  /** Buat sirkulasi penerima internal setelah konseptor menekan tombol kirim. */
+  /** Dispatch internal inbox without changing the successful signature result. */
+  private async deliverInternalRecipientAfterFinalization(
+    folder: SdeMasalFolderEntity,
+    item: SdeMasalEntity,
+    recipient: Record<string, any>,
+    senderPosition: any,
+  ): Promise<void> {
+    try {
+      await this.deliverInternalRecipient(
+        folder,
+        item,
+        recipient,
+        senderPosition,
+      );
+    } catch (error) {
+      // Penandatanganan sudah berhasil; kegagalan pengiriman Inbox tidak boleh
+      // mengubah hasil tanda tangan menjadi gagal atau membuat PDF duplikat.
+      const latestRecipient = this.parseRecipientData(item);
+      latestRecipient.internalInboxSendError = String(
+        error?.message || error,
+      ).slice(0, 300);
+      item.recipientData = JSON.stringify(latestRecipient);
+      await this.repo.save(item);
+      this.logger.error(
+        `[SDE Masal] Finalisasi berhasil tetapi pengiriman Inbox internal gagal untuk ${item.naskahId}: ${error?.message || error}`,
+      );
+    }
+  }
+
+  /** Buat sirkulasi penerima internal setelah finalisasi tanda tangan berhasil. */
   private async deliverInternalRecipient(
     folder: SdeMasalFolderEntity,
     item: SdeMasalEntity,
@@ -914,13 +1000,13 @@ export class SdeMasalService {
   }
 
   /**
-   * Kirim seluruh naskah yang sudah ditandatangani dari sisi konseptor.
+   * Kirim seluruh naskah yang sudah ditandatangani dari sisi pengirim naskah.
    * Item yang berhasil dikirim ditandai di recipientData agar tombol dapat
    * dipakai ulang tanpa mengirim email yang sama dua kali.
    */
   async sendFolderEmails(
     folderId: string,
-    creatorPosition?: string | number,
+    senderPosition?: string | number,
     requesterPersnum?: number,
     emailOverrides: Array<{
       itemId: string;
@@ -933,7 +1019,7 @@ export class SdeMasalService {
     if (running) return running;
     const request = this.sendFolderEmailsLocked(
       folderId,
-      creatorPosition,
+      senderPosition,
       requesterPersnum,
       emailOverrides,
     );
@@ -947,7 +1033,7 @@ export class SdeMasalService {
 
   private async sendFolderEmailsLocked(
     folderId: string,
-    creatorPosition?: string | number,
+    senderPosition?: string | number,
     requesterPersnum?: number,
     emailOverrides: Array<{
       itemId: string;
@@ -958,14 +1044,13 @@ export class SdeMasalService {
   ) {
     const folder = await this.folderRepo.findOne({ where: { id: folderId } });
     if (!folder) throw new NotFoundException('Folder SDE Massal tidak ditemukan');
-    if (String(folder.createdBy || '') !== String(creatorPosition || '')) {
-      throw new ForbiddenException('Hanya konseptor yang dapat mengirim naskah');
+    const authorizedSenderPosition = folder.pengirimId;
+    if (String(authorizedSenderPosition || '') !== String(senderPosition || '')) {
+      throw new ForbiddenException('Hanya pengirim naskah yang dapat mengirim naskah');
     }
     if (!['SIAP_KIRIM', 'TERKIRIM'].includes(folder.status)) {
       throw new BadRequestException(
-        folder.recipientType === 'INTERNAL'
-          ? 'Folder belum siap dikirim ke Kotak Masuk'
-          : 'Folder belum siap dikirim melalui email',
+        'Folder belum siap dikirim',
       );
     }
 
@@ -975,6 +1060,21 @@ export class SdeMasalService {
     if (rows.length === 0) {
       throw new BadRequestException('Belum ada naskah yang selesai ditandatangani');
     }
+
+    // Jangan mengandalkan recipientType lama saja: data folder campuran atau
+    // baris yang dibuat sebelum metadata tipe penerima tersimpan dapat tetap
+    // membawa ID e-NIK/Persnum. Resolve ulang semua ID sebelum dispatch agar
+    // surat internal tidak terkirim melalui jalur email eksternal.
+    const typedRecipients = await this.resolveRecipientTypes(
+      rows.map((item) => this.parseRecipientData(item)),
+      folder.recipientType === 'INTERNAL',
+    );
+    const recipientByItemId = new Map(
+      rows.map((item, index) => [
+        item.id,
+        this.normalizeMassalRecipient(typedRecipients[index] || {}),
+      ]),
+    );
 
     const orgData = await this.orgDataService.findOrg(
       folder.tanggal
@@ -998,9 +1098,15 @@ export class SdeMasalService {
       message?: string;
     }> = [];
 
-    if (folder.recipientType === 'INTERNAL') {
-      for (const item of rows) {
-        const recipient = this.parseRecipientData(item);
+    for (const item of rows) {
+      const recipient = recipientByItemId.get(item.id) || this.parseRecipientData(item);
+      // Simpan hasil resolusi ulang agar status dan routing tetap konsisten
+      // jika pengiriman perlu dicoba kembali.
+      item.recipientData = JSON.stringify(recipient);
+      const isInternalRecipient =
+        recipient.recipientType === 'INTERNAL' ||
+        (!recipient.recipientType && folder.recipientType === 'INTERNAL');
+      if (isInternalRecipient) {
         try {
           const result = await this.deliverInternalRecipient(
             folder,
@@ -1030,47 +1136,8 @@ export class SdeMasalService {
             message,
           });
         }
+        continue;
       }
-
-      const allDelivered = results.every(
-        (result) => result.status === 'sent' || result.status === 'skipped',
-      );
-      if (allDelivered) {
-        folder.status = 'TERKIRIM';
-        folder.rejectionReason = null;
-        await this.folderRepo.save(folder);
-        if (folder.parentNaskahId && folder.createdBy) {
-          await this.sirkulasiRepository.update(
-            {
-              idNaskah: folder.parentNaskahId,
-              position: String(folder.createdBy),
-              sirkuler: In(['penerima', 'tembusan']),
-            },
-            { tindakLanjut: 1 },
-          );
-        }
-        await this.notifySdeMasalPositions([folder.createdBy], {
-          title: 'SDE Massal Selesai Dikirim',
-          body: `Folder "${folder.judul || '-'}" berhasil dikirim ke Kotak Masuk karyawan internal.`,
-          action: 'OPEN_SDE_MASAL_FOLDER',
-          folderId: folder.id,
-          status: 'TERKIRIM',
-        });
-      }
-
-      return {
-        deliveryType: 'INTERNAL' as const,
-        folderStatus: allDelivered ? 'TERKIRIM' : 'SIAP_KIRIM',
-        total: results.length,
-        sent: results.filter((result) => result.status === 'sent').length,
-        skipped: results.filter((result) => result.status === 'skipped').length,
-        failed: results.filter((result) => result.status === 'failed').length,
-        results,
-      };
-    }
-
-    for (const item of rows) {
-      const recipient = this.parseRecipientData(item);
       const override = overrideMap.get(item.id);
       if (override) {
         recipient.emailTertuju = String(override.to || '').trim();
@@ -1100,7 +1167,7 @@ export class SdeMasalService {
         external,
         pengirim,
         folder,
-        folder.pengirimId || creatorPosition,
+        folder.pengirimId || senderPosition,
         senderPersnum,
       );
       recipient.emailSendError = sent ? undefined : 'Email gagal dikirim';
@@ -1139,7 +1206,7 @@ export class SdeMasalService {
       }
       await this.notifySdeMasalPositions([folder.createdBy], {
         title: 'SDE Massal Selesai Dikirim',
-        body: `Folder "${folder.judul || '-'}" berhasil dikirim melalui email.`,
+        body: `Folder "${folder.judul || '-'}" berhasil dikirim ke seluruh penerima.`,
         action: 'OPEN_SDE_MASAL_FOLDER',
         folderId: folder.id,
         status: 'TERKIRIM',
@@ -1147,7 +1214,7 @@ export class SdeMasalService {
     }
 
     return {
-      deliveryType: 'EXTERNAL' as const,
+      deliveryType: 'MIXED' as const,
       folderStatus: allSent ? 'TERKIRIM' : 'SIAP_KIRIM',
       total: results.length,
       sent: results.filter((result) => result.status === 'sent').length,
@@ -1799,16 +1866,38 @@ export class SdeMasalService {
 
   async completePortalItem(naskahId: string): Promise<void> {
     const item = await this.repo.findOne({ where: { naskahId } });
-    if (!item || item.statusVerifikasi === 'TERKIRIM') return;
-    item.statusVerifikasi = 'TERKIRIM';
-    item.errorMessage = null;
-    await this.repo.save(item);
+    if (!item) return;
+    if (item.statusVerifikasi !== 'TERKIRIM') {
+      item.statusVerifikasi = 'TERKIRIM';
+      item.errorMessage = null;
+      await this.repo.save(item);
+    }
     if (!item.folderId) return;
 
     const folder = await this.folderRepo.findOne({
       where: { id: item.folderId },
     });
     if (!folder) return;
+    const [recipient] = await this.resolveRecipientTypes(
+      [this.parseRecipientData(item)],
+      folder.recipientType === 'INTERNAL',
+    );
+    if (recipient?.recipientType === 'INTERNAL') {
+      const date = folder.tanggal
+        ? new Date(folder.tanggal).toISOString().slice(0, 10)
+        : new Date().toISOString().slice(0, 10);
+      const orgData = await this.orgDataService.findOrg(date);
+      const senderPosition = orgData?.position_json?.find(
+        (position: any) =>
+          String(position.position) === String(folder.pengirimId || ''),
+      );
+      await this.deliverInternalRecipientAfterFinalization(
+        folder,
+        item,
+        recipient,
+        senderPosition,
+      );
+    }
     await this.refreshFolderCounters(item.folderId);
     const completedFolder = await this.folderRepo.findOne({
       where: { id: item.folderId },
@@ -3050,9 +3139,10 @@ export class SdeMasalService {
   /**
    * Ambil PDF untuk preview/print SDE Massal dari Terkirim.
    *
-   * Naskah BSrE harus memakai final_pdf asli karena render ulang akan membuang
-   * signature digital. Naskah non-BSrE tetap dapat dirender dari data Excel
-   * agar placeholder penerima historis yang kosong dapat dipulihkan.
+   * Seluruh naskah yang sudah memiliki final_pdf memakai file tersimpan.
+   * Sirkulasi penerima internal baru terbentuk saat dispatch; render ulang
+   * setelah finalisasi dapat menghilangkan tertuju yang ada di PDF asli.
+   * Fallback render hanya untuk data lama yang belum memiliki file final.
    */
   async generateSentNaskahPreviewPdf(
     naskahId: string,
@@ -3074,17 +3164,20 @@ export class SdeMasalService {
     if (!folder)
       throw new NotFoundException('Folder SDE Massal tidak ditemukan');
 
-    // Dokumen BSrE wajib memakai file final hasil signing. Merender ulangnya
-    // akan menghilangkan struktur signature (/Sig + ByteRange).
-    // Data Excel untuk naskah baru sudah dirender sebelum proses signing, jadi
-    // final_pdf tetap memuat placeholder penerima sekaligus tanda tangan asli.
-    if (naskah.signOption === 'digsig' && naskah.final_pdf) {
+    // Preview/unduh harus sama persis dengan dokumen hasil finalisasi untuk
+    // QR-only, BSrE, maupun TTD basah, termasuk penerima dan lampirannya.
+    if (naskah.final_pdf) {
       return this.storageService.getFile(naskah.final_pdf);
     }
 
-    const recipient = this.normalizeMassalRecipient(
-      this.parseRecipientData(item),
+    // Baris SDE Massal menyimpan ID dari Excel; resolve lagi saat preview
+    // agar naskah lama tetap bisa menampilkan nama penerima internal, meski
+    // sirkulasi kotak masuk belum terbentuk atau metadata nama belum tersimpan.
+    const [resolvedRecipient] = await this.resolveRecipientTypes(
+      [this.parseRecipientData(item)],
+      folder.recipientType === 'INTERNAL',
     );
+    const recipient = this.normalizeMassalRecipient(resolvedRecipient);
     // Tanggal folder adalah tanggal konsep yang dipilih user dan menjadi
     // sumber kanonik untuk preview maupun PDF final. Fallback ke tanggal
     // naskah hanya untuk data lama yang belum memiliki tanggal folder.
@@ -3137,9 +3230,9 @@ export class SdeMasalService {
       );
     const konten = this.renderFolderKonten(folder, item, {
       ...recipient,
-      // Semua placeholder tembusan dirender ke label yang benar. Khusus
-      // tembusan internal, resolver memakai position ID -> position_text,
-      // bukan persnum_person_text/nama personelnya.
+      // Semua placeholder tembusan dirender ke label yang benar. Tembusan
+      // internal menerima position ID/e-NIK/Persnum dan ditampilkan sebagai
+      // nama personel dari direktori.
       tembusan: formatTembusan(tembusanNames),
       tembusan_internal: formatTembusan(tembusanInternalNames),
       tembusan_eksternal: formatTembusan(tembusanEksternalNames),
@@ -3152,6 +3245,16 @@ export class SdeMasalService {
       where: { idNaskah: naskahId, sirkuler: 'penerima' },
       order: { urutan: 'ASC' },
     });
+    const pdfRecipients =
+      recipient.recipientType === 'INTERNAL'
+        ? [
+            recipient.employeeName ||
+              recipient.variables?.nama ||
+              recipient.nama ||
+              recipient.tertuju ||
+              '',
+          ].filter(Boolean)
+        : penerima.map((row) => row.namaSirkuler || '').filter(Boolean);
     const tembusan = await this.sirkulasiRepository.find({
       where: { idNaskah: naskahId, sirkuler: 'tembusan' },
       order: { urutan: 'ASC' },
@@ -3179,7 +3282,7 @@ export class SdeMasalService {
 
     return this.sdeService.generatePdfFromHtml(
       konten,
-      penerima.map((row) => row.namaSirkuler || ''),
+      pdfRecipients,
       naskah.tempat || headerInfo?.kota || 'Tangerang',
       tanggal,
       pengirim?.positionText || '',
@@ -3388,7 +3491,7 @@ export class SdeMasalService {
           '1. Kolom "Perihal" WAJIB diisi. Default: "Pemberitahuan Tagihan PINP".',
         ],
         [
-          '2. Kolom "id_tertuju" diisi dengan kode ID Tertuju dari sheet "Referensi ID Tertuju".',
+          '2. Kolom "id_tertuju" diisi dengan kode tertuju eksternal dari sheet "Referensi ID Tertuju", atau e-NIK/Persnum untuk karyawan internal.',
         ],
         ['   Contoh: 112, 117, 119, dst.'],
         [
@@ -3586,7 +3689,7 @@ export class SdeMasalService {
           '1. Kolom "Perihal" WAJIB diisi. Default: "Pemberitahuan Tagihan PJNP".',
         ],
         [
-          '2. Kolom "id_tertuju" diisi dengan kode ID Tertuju dari sheet "Referensi ID Tertuju".',
+          '2. Kolom "id_tertuju" diisi dengan kode tertuju eksternal dari sheet "Referensi ID Tertuju", atau e-NIK/Persnum untuk karyawan internal.',
         ],
         ['   Contoh: 112, 117, 119, dst.'],
         ['3. Kolom "jumlah_lampiran" opsional. Contoh: "1 (lembar)" atau "-".'],
@@ -3881,18 +3984,26 @@ export class SdeMasalService {
     const values = {
       ...recipient,
       ...variableValues,
-      tertuju: recipient.tertuju || variableValues.tertuju || '',
+      tertuju:
+        recipient.recipientType === 'INTERNAL'
+          ? recipient.employeeName ||
+            String(recipient.tertuju || '').split(' — ')[0] ||
+            variableValues.tertuju ||
+            variableValues.nama ||
+            recipient.nama ||
+            ''
+          : recipient.tertuju || variableValues.tertuju || '',
       perihal: recipient.perihal || variableValues.perihal || '',
       tembusan: recipient.tembusan || variableValues.tembusan || '',
       tembusan_internal:
-        recipient.tembusanInternal ||
         recipient.tembusan_internal ||
+        recipient.tembusanInternal ||
         variableValues.tembusan_internal ||
         variableValues.tembusanInternal ||
         '',
       tembusan_eksternal:
-        recipient.tembusanEksternal ||
         recipient.tembusan_eksternal ||
+        recipient.tembusanEksternal ||
         variableValues.tembusan_eksternal ||
         variableValues.tembusanEksternal ||
         '',
@@ -3969,18 +4080,48 @@ export class SdeMasalService {
     });
   }
 
-  private parseInternalTembusan(recipient: Record<string, any>): number[] {
+  private parseInternalTembusan(
+    recipient: Record<string, any>,
+    sourcePositions: any[] | string = [],
+  ): number[] {
     const value =
       recipient.tembusanInternal ||
       recipient.tembusan_internal ||
       recipient.internalTembusan;
-    if (Array.isArray(value)) return value.map(Number).filter(Number.isFinite);
-    return String(value || '')
-      .split(/[,;]/)
-      .map((part) => part.trim())
-      .filter(Boolean)
-      .map(Number)
-      .filter(Number.isFinite);
+    const rawPositions = Array.isArray(sourcePositions)
+      ? sourcePositions
+      : (() => {
+          try {
+            const parsed = JSON.parse(String(sourcePositions || '[]'));
+            return Array.isArray(parsed) ? parsed : [];
+          } catch {
+            return [];
+          }
+        })();
+    const ids = (Array.isArray(value) ? value : String(value || '').split(/[,;]/))
+      .map((part: unknown) => String(part ?? '').trim())
+      .filter(Boolean);
+    return Array.from(new Set(ids.map((id) => {
+      const matches = rawPositions.filter((position: any) =>
+        [
+          position?.position,
+          position?.persnum_person,
+          position?.persnum,
+          position?.e_nik,
+          position?.enik,
+          position?.eNik,
+        ].some((candidate) => String(candidate ?? '').trim() === id),
+      );
+      const selected =
+        matches.find(
+          (position: any) =>
+            String(position?.position_status ?? position?.positionStatus ?? '')
+              .trim()
+              .toLowerCase() === 'ybs',
+        ) || matches[0];
+      const positionId = Number(selected?.position ?? id);
+      return Number.isFinite(positionId) ? positionId : null;
+    }).filter((positionId): positionId is number => positionId !== null)));
   }
 
   /**
@@ -4035,12 +4176,25 @@ export class SdeMasalService {
       }
     }
 
-    // Helper: resolve position ID → position_text dari org_data
-    const resolveInternal = (posId: string): string => {
-      const pos = positionJson.find(
-        (p) => String(p.position) === String(posId),
+    // Tembusan internal menerima position ID maupun e-NIK/Persnum.
+    const resolveInternal = (employeeOrPositionId: string): string => {
+      const matches = positionJson.filter((p) =>
+        [p?.position, p?.persnum_person, p?.persnum, p?.e_nik, p?.enik, p?.eNik]
+          .some((candidate) => String(candidate ?? '').trim() === employeeOrPositionId),
       );
-      return (pos ? formatGmRecipientLabel(pos) : undefined) ?? pos?.position_text ?? pos?.persnum_person_text ?? posId;
+      const pos =
+        matches.find(
+          (candidate) =>
+            String(candidate?.position_status ?? candidate?.positionStatus ?? '')
+              .trim()
+              .toLowerCase() === 'ybs',
+        ) || matches[0];
+      return (
+        pos?.persnum_person_text ??
+        (pos ? formatGmRecipientLabel(pos) : undefined) ??
+        pos?.position_text ??
+        employeeOrPositionId
+      );
     };
 
     // 1. Resolve tembusan eksternal (kode → nama).
@@ -4145,10 +4299,12 @@ export class SdeMasalService {
       totalItems > 0 &&
       rows.every((row) => {
         const recipient = this.parseRecipientData(row);
-        const sentAt =
-          folder.recipientType === 'INTERNAL'
-            ? recipient.internalInboxSentAt
-            : recipient.emailSentAt;
+        const isInternalRecipient =
+          recipient.recipientType === 'INTERNAL' ||
+          (!recipient.recipientType && folder.recipientType === 'INTERNAL');
+        const sentAt = isInternalRecipient
+          ? recipient.internalInboxSentAt
+          : recipient.emailSentAt;
         return String(sentAt || '').trim().length > 0;
       });
 
@@ -4257,6 +4413,138 @@ export class SdeMasalService {
   }
 
   /**
+   * Tentukan jenis tertuju per baris dari satu kolom ID Excel. ID yang cocok
+   * ke master eksternal memakai alur lama; e-NIK/Persnum yang cocok ke org
+   * data menjadi penerima internal. Nama/email tidak dipakai sebagai ID.
+   */
+  private async resolveRecipientTypes(
+    recipients: any[],
+    legacyInternalFolder = false,
+  ): Promise<any[]> {
+    const positions = await this.getLatestOrgPositions();
+    const normalizeId = (value: unknown) => {
+      let normalized = String(value ?? '').trim().replace(/[\s\u00a0]/g, '');
+      if (/^\d+\.0+$/.test(normalized)) normalized = normalized.replace(/\.0+$/, '');
+      return normalized;
+    };
+    const internalRecipients: any[] = [];
+    const internalIndexes: number[] = [];
+    const resolved = [...recipients];
+
+    for (let index = 0; index < recipients.length; index++) {
+      const recipient = recipients[index] || {};
+      const hasUnifiedRecipientId = Boolean(
+        recipient.recipientIdInput || recipient.idTertuju,
+      );
+      // Untuk format Excel baru, tipe selalu ditentukan dari ID direktori,
+      // bukan dari metadata frontend. Fallback folder hanya untuk data lama.
+      // Jika baris sudah tervalidasi sebagai internal di SDE Massal, jangan
+      // diam-diam mengubahnya menjadi eksternal hanya karena snapshot org
+      // terbaru tidak memuat ID itu. Validasi internal tetap dilakukan lagi
+      // di resolveInternalRecipients sebelum PDF/finalisasi.
+      const forcedInternal =
+        recipient.recipientType === 'INTERNAL' ||
+        (!hasUnifiedRecipientId &&
+          !recipient.recipientType &&
+          legacyInternalFolder);
+      const rawId = normalizeId(
+        recipient.recipientIdInput ||
+          recipient.employeeIdInput ||
+          recipient.idTertuju ||
+          recipient.tertuju,
+      );
+      if (!rawId) {
+        if (forcedInternal) {
+          throw new BadRequestException(
+            `Baris ${recipient.no ?? index + 1}: ID karyawan kosong. Isi e-NIK atau Persnum.`,
+          );
+        }
+        resolved[index] = { ...recipient, recipientType: 'EXTERNAL' };
+        continue;
+      }
+
+      const internalMatches = positions.filter((position: any) =>
+        [
+          position?.persnum_person,
+          position?.persnum,
+          position?.e_nik,
+          position?.enik,
+          position?.eNik,
+        ].some((candidate) => normalizeId(candidate) === rawId),
+      );
+
+      let externalMatches: EksternalEntity[] = [];
+      if (rawId.length === 36 && rawId.includes('-')) {
+        const external = await this.eksternalRepository.findOne({
+          where: { id: rawId },
+        });
+        if (external) externalMatches = [external];
+      } else {
+        externalMatches = await this.eksternalRepository.find({
+          where: { kode: rawId.padStart(3, '0') },
+        });
+      }
+
+      if (!forcedInternal && internalMatches.length && externalMatches.length) {
+        throw new BadRequestException(
+          `Baris ${recipient.no ?? index + 1}: ID "${rawId}" cocok ke tertuju eksternal dan karyawan internal. Gunakan ID yang tidak ambigu.`,
+        );
+      }
+      if (!forcedInternal && externalMatches.length > 1) {
+        throw new BadRequestException(
+          `Baris ${recipient.no ?? index + 1}: ID tertuju eksternal "${rawId}" cocok ke lebih dari satu data.`,
+        );
+      }
+
+      if (forcedInternal || (internalMatches.length > 0 && !externalMatches.length)) {
+        internalIndexes.push(index);
+        internalRecipients.push({
+          ...recipient,
+          recipientType: 'INTERNAL',
+          employeeIdInput: rawId,
+          recipientIdInput: rawId,
+        });
+        continue;
+      }
+
+      if (externalMatches.length === 1) {
+        const external = externalMatches[0];
+        resolved[index] = {
+          ...recipient,
+          recipientType: 'EXTERNAL',
+          recipientIdInput: rawId,
+          idTertuju: external.id || external.kode || rawId,
+          tertuju: external.nama || recipient.tertuju || rawId,
+        };
+        continue;
+      }
+
+      const hasExplicitId = Boolean(
+        recipient.recipientIdInput || recipient.employeeIdInput || recipient.idTertuju,
+      );
+      if (hasExplicitId) {
+        throw new BadRequestException(
+          `Baris ${recipient.no ?? index + 1}: ID tertuju "${rawId}" tidak ditemukan sebagai karyawan internal maupun tertuju eksternal.`,
+        );
+      }
+
+      // Compat: SDE Massal lama mengizinkan nama tertuju eksternal bebas yang
+      // kemudian diproses oleh resolver eksternal existing.
+      resolved[index] = { ...recipient, recipientType: 'EXTERNAL' };
+    }
+
+    if (internalRecipients.length) {
+      const normalizedInternal = await this.resolveInternalRecipients(
+        internalRecipients,
+      );
+      normalizedInternal.forEach((recipient, internalIndex) => {
+        resolved[internalIndexes[internalIndex]] = recipient;
+      });
+    }
+    return resolved;
+  }
+
+  /**
    * Resolve penerima SDE Massal internal dari direktori org-data. Identitas
    * selalu dicocokkan tepat terhadap ID karyawan; nama/email tidak pernah
    * dipakai untuk memilih penerima.
@@ -4357,13 +4645,13 @@ export class SdeMasalService {
         );
       }
 
-      const display = `${employeeName} — ${positionText} — ${organizationText}`;
+      const display = employeeName;
       const variables = {
         ...(recipient?.variables && typeof recipient.variables === 'object'
           ? recipient.variables
           : {}),
         tertuju: display,
-        nama: employeeName,
+        nama: recipient?.variables?.nama || employeeName,
         jabatan: positionText,
         unit_kerja: organizationText,
         id_karyawan: employeeId,
