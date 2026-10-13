@@ -2455,7 +2455,9 @@ export class SuratDinasEksternalService {
 
       // PHASE 9: (REMOVED) - SdiSdeEntity tidak lagi digunakan
       // Data sudah tersimpan di naskah dan naskah_sirkulasi
-      const kepadaYthList = penerimaList.map((p) => p.nama);
+      const kepadaYthList = dto.penerima_display?.length
+        ? dto.penerima_display
+        : penerimaList.map((p) => p.nama);
       const kepadaYth = kepadaYthList.join('; ');
       const tembusanTextList = tembusanList.map(
         (t) =>

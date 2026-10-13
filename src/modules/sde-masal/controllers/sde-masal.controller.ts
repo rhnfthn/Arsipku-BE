@@ -194,8 +194,10 @@ export class SdeMasalController {
       success: true,
       data,
       message: data.failed > 0
-        ? `${data.sent} email berhasil dikirim, ${data.failed} gagal.`
-        : 'Semua email berhasil dikirim.',
+        ? `${data.sent} ${data.deliveryType === 'INTERNAL' ? 'naskah ke Kotak Masuk' : 'email'} berhasil dikirim, ${data.failed} gagal.`
+        : data.deliveryType === 'INTERNAL'
+          ? 'Semua naskah berhasil dikirim ke Kotak Masuk.'
+          : 'Semua email berhasil dikirim.',
     };
   }
 

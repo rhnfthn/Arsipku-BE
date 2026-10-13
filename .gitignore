@@ -73,6 +73,7 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 !/src/migrations/1791200000000-WidenBerkasKlasifikasiText.ts
 !/src/migrations/1791300000000-AddBacPejabatColumns.ts
 !/src/migrations/1791400000000-AddBacSignedColumns.ts
+!/src/migrations/1791900000000-AddSdeMasalRecipientType.ts
 !/src/migrations/1791800000000-AddPenataanLabel.ts
 !/src/migrations/1791700000000-AddWaitingSecondBacSignatureStatus.ts
 /scripts/*

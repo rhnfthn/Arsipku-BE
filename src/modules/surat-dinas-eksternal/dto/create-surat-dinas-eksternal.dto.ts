@@ -45,6 +45,12 @@ export class CreateSuratDinasEksternalDto {
   @IsString({ each: true })
   penerima?: string[]; // array of eksternal.id (UUID) - optional
 
+  /** Nama tujuan internal khusus untuk PDF SDE Massal; tidak membuat penerima eksternal. */
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  penerima_display?: string[];
+
   @IsOptional()
   penerima_eksternal?: any; // array of {nama_eksternal, posisi_eksternal, alamat_eksternal} or JSON string
 

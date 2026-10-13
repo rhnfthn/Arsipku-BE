@@ -13,7 +13,7 @@ import { createHash } from 'crypto';
 import * as XLSX from 'xlsx';
 import PizZip from 'pizzip';
 import PQueue from 'p-queue';
-import { v4 as uuidv4 } from 'uuid';
+import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
 import { SdeMasalEntity } from '../entities/sde-masal.entity';
 import { UpdateSdeMasalDto } from '../dto/update-sde-masal.dto';
 import { SdeMasalFilterDto } from '../dto/sde-masal-filter.dto';
@@ -94,6 +94,7 @@ export class SdeMasalService {
     string,
     Promise<void>
   >();
+  private readonly sdeMasalSendInFlight = new Map<string, Promise<any>>();
 
   constructor(
     @InjectRepository(SdeMasalEntity)
@@ -164,6 +165,7 @@ export class SdeMasalService {
       pengirimId: dto.pengirimId || null,
       pengirimName: dto.pengirimName || null,
       sifat: dto.sifat || 'biasa',
+      recipientType: dto.recipientType || 'EXTERNAL',
       atasNama: dto.atasNama || null,
       atasNamaPositionId: dto.atasNamaPositionId || null,
       kontenTemplate: dto.kontenTemplate || null,
@@ -305,6 +307,8 @@ export class SdeMasalService {
     if (data.pengirimName !== undefined)
       folder.pengirimName = data.pengirimName || null;
     if (data.sifat !== undefined) folder.sifat = data.sifat || 'biasa';
+    if (data.recipientType !== undefined)
+      folder.recipientType = data.recipientType;
     if (data.atasNama !== undefined) folder.atasNama = data.atasNama || null;
     if (data.atasNamaPositionId !== undefined)
       folder.atasNamaPositionId = data.atasNamaPositionId || null;
@@ -392,6 +396,11 @@ export class SdeMasalService {
       );
     }
 
+    const resolvedPenerimaList =
+      folder?.recipientType === 'INTERNAL'
+        ? await this.resolveInternalRecipients(penerimaList)
+        : penerimaList;
+
     // Request ulang untuk folder yang sama harus idempotent. `no` adalah
     // identitas baris Excel; lampiran sengaja tidak dijadikan pembeda karena
     // formatnya berubah dari nama file menjadi object setelah upload/commit.
@@ -413,7 +422,7 @@ export class SdeMasalService {
       folder.kontenTemplate = body.template.konten || folder.kontenTemplate;
       folder.dynamicVariables = Array.from(
         new Set(
-          penerimaList.flatMap((item) =>
+          resolvedPenerimaList.flatMap((item) =>
             Object.keys(item?.variables || {}).filter(
               (key) =>
                 ![
@@ -430,10 +439,11 @@ export class SdeMasalService {
     }
 
     const items: SdeMasalEntity[] = [];
+    const updatedItems: SdeMasalEntity[] = [];
     const requestedKeys: string[] = [];
     let failed = 0;
 
-    for (const p of penerimaList) {
+    for (const p of resolvedPenerimaList) {
       try {
         if (p.isValid === false) {
           failed++;
@@ -441,6 +451,20 @@ export class SdeMasalService {
         }
         const recipientKey = this.getMassalRecipientKey(p);
         if (existingKeys.has(recipientKey)) {
+          const existing = existingItemsByKey.get(recipientKey);
+          if (
+            folder?.recipientType === 'INTERNAL' &&
+            existing &&
+            !existing.naskahId &&
+            ['MENUNGGU', 'DITOLAK', 'GAGAL'].includes(
+              existing.statusVerifikasi,
+            )
+          ) {
+            existing.recipientData = JSON.stringify(
+              this.normalizeMassalRecipient(p),
+            );
+            updatedItems.push(existing);
+          }
           requestedKeys.push(recipientKey);
           continue;
         }
@@ -463,8 +487,8 @@ export class SdeMasalService {
     }
 
     let saved: SdeMasalEntity[] = [];
-    if (items.length > 0) {
-      saved = await this.repo.save(items);
+    if (items.length > 0 || updatedItems.length > 0) {
+      saved = await this.repo.save([...items, ...updatedItems]);
     }
     const generatedItemsByKey = new Map(
       saved.map((item) => [this.getMassalRecipientKey(item.recipientData), item]),
@@ -474,7 +498,7 @@ export class SdeMasalService {
       .filter((item): item is SdeMasalEntity => Boolean(item));
 
     return {
-      total: penerimaList.length,
+      total: resolvedPenerimaList.length,
       success: resultItems.length,
       failed,
       // Kembalikan juga item yang sudah ada saat request diulang secara
@@ -543,11 +567,10 @@ export class SdeMasalService {
       this.parseRecipientData(item),
     );
     const attachmentRefs = this.getAttachmentRefs(item, recipient);
-    const external = await this.resolveRecipientExternal(
-      folder,
-      item,
-      recipient,
-    );
+    const isInternalRecipient = folder.recipientType === 'INTERNAL';
+    const external = isInternalRecipient
+      ? null
+      : await this.resolveRecipientExternal(folder, item, recipient);
     // Resolve tembusan eksternal ke list bernomor dengan nama eksternal
     const tembusanList = await this.resolveTembusanList(folder, {
       ...recipient,
@@ -573,7 +596,10 @@ export class SdeMasalService {
 
     const dto: CreateSuratDinasEksternalDto = {
       pengirim: Number(folder.pengirimId),
-      penerima: [external.id],
+      penerima: external ? [external.id] : [],
+      penerima_display: isInternalRecipient
+        ? [String(recipient.tertuju || recipient.employeeName || '')]
+        : undefined,
       tgl: tanggal,
       id_referensi_naskah: folder.parentNaskahId || undefined,
       klasifikasi: folder.klasifikasi || '',
@@ -633,6 +659,14 @@ export class SdeMasalService {
       item.statusVerifikasi = deferPortalRequest ? 'MENUNGGU_TTE' : 'TERKIRIM';
       item.errorMessage = null;
       await this.repo.save(item);
+      // Penerima internal belum boleh melihat naskah di Kotak Masuk sebelum
+      // konseptor menekan tombol kirim pada detail folder.
+      if (isInternalRecipient) {
+        await this.sirkulasiRepository.update(
+          { idNaskah: data.id, sirkuler: 'pengirim' },
+          { isDraft: true },
+        );
+      }
       await this.addExternalTembusan(data.id, item, recipient, data.status);
       // Tembusan internal sudah dibuat oleh alur SDE biasa melalui
       // dto.tembusan. Jangan insert ulang di sini karena menghasilkan dua
@@ -668,6 +702,160 @@ export class SdeMasalService {
       if (syncFolder) await this.refreshFolderCounters(folder.id);
       throw error;
     }
+  }
+
+  /** Buat sirkulasi penerima internal setelah konseptor menekan tombol kirim. */
+  private async deliverInternalRecipient(
+    folder: SdeMasalFolderEntity,
+    item: SdeMasalEntity,
+    recipient: Record<string, any>,
+    senderPosition: any,
+  ): Promise<{ status: 'sent' | 'skipped'; message: string }> {
+    if (recipient.internalInboxSentAt) {
+      return { status: 'skipped', message: 'Sudah dikirim ke Kotak Masuk' };
+    }
+    if (!item.naskahId) {
+      throw new BadRequestException('Naskah belum selesai ditandatangani');
+    }
+
+    const naskah = await this.naskahRepository.findOne({
+      where: { id: item.naskahId },
+    });
+    const naskahStatus = String(naskah?.status || '').toLowerCase();
+    if (!naskah || !['final', 'final_tte'].includes(naskahStatus)) {
+      throw new BadRequestException(
+        'Naskah belum berstatus final; selesaikan penandatanganan terlebih dahulu.',
+      );
+    }
+
+    // Revalidasi ID ketika dikirim; nama/jabatan dari file tidak menjadi sumber
+    // otoritatif identitas maupun posisi penerima.
+    const [resolved] = await this.resolveInternalRecipients([recipient]);
+    const employeePositionId = String(resolved.employeePositionId);
+    const existingCirculation = await this.sirkulasiRepository.findOne({
+      where: {
+        idNaskah: item.naskahId,
+        position: employeePositionId,
+        sirkuler: In(['penerima', 'tembusan']),
+      },
+      order: { urutan: 'ASC' },
+    });
+
+    let circulation = existingCirculation;
+    let created = false;
+    if (!circulation) {
+      const allowedPositionStatus = new Set([
+        'ybs',
+        'pt',
+        'ph',
+        'ps',
+        'se',
+        'vi',
+      ]);
+      const rawPositionStatus = String(
+        resolved.employeePositionStatus || 'ybs',
+      ).toLowerCase();
+      const positionStatus = allowedPositionStatus.has(rawPositionStatus)
+        ? rawPositionStatus
+        : 'ybs';
+      const internalCirculationId = uuidv5(
+        `sde-masal-internal:${item.naskahId}:${employeePositionId}`,
+        uuidv5.URL,
+      );
+      circulation = this.sirkulasiRepository.create({
+        id: internalCirculationId,
+        tanggal: naskah.tanggal || new Date(),
+        idNaskah: item.naskahId,
+        sirkuler: 'penerima',
+        company: resolved.employeeCompanyId || String(COMPANY_ID),
+        companyText: resolved.employeeCompanyText || 'PERUM LPPNPI',
+        area: resolved.employeeAreaId || null,
+        areaText: resolved.employeeAreaText || null,
+        subArea: resolved.employeeSubAreaId || null,
+        subAreaText: resolved.employeeSubAreaText || null,
+        organization: resolved.employeeOrganizationId || null,
+        organizationText: resolved.employeeOrganizationText,
+        position: employeePositionId,
+        positionText: resolved.employeePositionText,
+        positionStatus: positionStatus as any,
+        idSirkuler: String(resolved.employeePersnum || resolved.employeeId),
+        namaSirkuler: resolved.employeeName,
+        email: resolved.employeeEmail || null,
+        isDraft: false,
+        urutan: 0,
+      });
+      try {
+        await this.sirkulasiRepository.save(circulation);
+        created = true;
+      } catch (error: any) {
+        // Deterministic ID protects against a retry from another app process.
+        if (error?.code !== 'ER_DUP_ENTRY') throw error;
+        circulation = await this.sirkulasiRepository.findOne({
+          where: {
+            idNaskah: item.naskahId,
+            position: employeePositionId,
+            sirkuler: 'penerima',
+          },
+        });
+        if (!circulation) throw error;
+      }
+    } else if (circulation.isDraft) {
+      circulation.isDraft = false;
+      await this.sirkulasiRepository.save(circulation);
+    }
+
+    // Baru setelah dikirim, pengirim melihat naskah di daftar Terkirim.
+    await this.sirkulasiRepository.update(
+      { idNaskah: item.naskahId, sirkuler: 'pengirim' },
+      { isDraft: false },
+    );
+
+    const updatedRecipient = {
+      ...resolved,
+      internalInboxSentAt: new Date().toISOString(),
+    };
+    delete updatedRecipient.internalInboxSendError;
+    item.recipientData = JSON.stringify(updatedRecipient);
+    await this.repo.save(item);
+
+    // Baris tembusan yang sudah ada dipakai sebagai akses Inbox; jangan membuat
+    // sirkulasi penerima kedua untuk posisi yang sama.
+    if (created && circulation.sirkuler === 'penerima') {
+      const rawPersnum = Number(
+        resolved.employeePersnum || resolved.employeeId,
+      );
+      try {
+        await this.notificationService.createNaskahMasukNotification({
+          positionId: employeePositionId,
+          userPersnum: Number.isFinite(rawPersnum) ? rawPersnum : undefined,
+          naskahId: item.naskahId,
+          sirkulasiId: circulation.id,
+          jenis: 'SDE',
+          nomor: naskah.nomor || undefined,
+          perihal: naskah.perihal || recipient.perihal || '-',
+          pengirim:
+            senderPosition?.persnum_person_text ||
+            senderPosition?.position_text ||
+            folder.pengirimName ||
+            'Pengirim SDE Massal',
+          pengirimPosition:
+            senderPosition?.position_text || folder.pengirimName || '-',
+          isTembusan: false,
+        });
+      } catch (error) {
+        // Inbox tetap bisa dibuka dari baris sirkulasi walau notifikasi gagal.
+        this.logger.warn(
+          `[SDE Masal] Notifikasi Kotak Masuk gagal untuk ${item.naskahId}: ${error?.message || error}`,
+        );
+      }
+    }
+
+    return {
+      status: existingCirculation ? 'skipped' : 'sent',
+      message: existingCirculation
+        ? 'Penerima sudah memiliki akses Kotak Masuk; tidak dibuat duplikat'
+        : 'Naskah berhasil dikirim ke Kotak Masuk karyawan internal',
+    };
   }
 
   /** Kirim satu naskah SDE Massal melalui email. */
@@ -741,13 +929,44 @@ export class SdeMasalService {
       bcc?: string;
     }> = [],
   ) {
+    const running = this.sdeMasalSendInFlight.get(folderId);
+    if (running) return running;
+    const request = this.sendFolderEmailsLocked(
+      folderId,
+      creatorPosition,
+      requesterPersnum,
+      emailOverrides,
+    );
+    this.sdeMasalSendInFlight.set(folderId, request);
+    try {
+      return await request;
+    } finally {
+      this.sdeMasalSendInFlight.delete(folderId);
+    }
+  }
+
+  private async sendFolderEmailsLocked(
+    folderId: string,
+    creatorPosition?: string | number,
+    requesterPersnum?: number,
+    emailOverrides: Array<{
+      itemId: string;
+      to?: string;
+      cc?: string;
+      bcc?: string;
+    }> = [],
+  ) {
     const folder = await this.folderRepo.findOne({ where: { id: folderId } });
     if (!folder) throw new NotFoundException('Folder SDE Massal tidak ditemukan');
     if (String(folder.createdBy || '') !== String(creatorPosition || '')) {
-      throw new ForbiddenException('Hanya konseptor yang dapat mengirim email');
+      throw new ForbiddenException('Hanya konseptor yang dapat mengirim naskah');
     }
     if (!['SIAP_KIRIM', 'TERKIRIM'].includes(folder.status)) {
-      throw new BadRequestException('Folder belum siap dikirim melalui email');
+      throw new BadRequestException(
+        folder.recipientType === 'INTERNAL'
+          ? 'Folder belum siap dikirim ke Kotak Masuk'
+          : 'Folder belum siap dikirim melalui email',
+      );
     }
 
     const rows = this.deduplicateMassalRows(
@@ -778,6 +997,77 @@ export class SdeMasalService {
       status: 'sent' | 'skipped' | 'failed';
       message?: string;
     }> = [];
+
+    if (folder.recipientType === 'INTERNAL') {
+      for (const item of rows) {
+        const recipient = this.parseRecipientData(item);
+        try {
+          const result = await this.deliverInternalRecipient(
+            folder,
+            item,
+            recipient,
+            pengirim,
+          );
+          results.push({
+            itemId: item.id,
+            naskahId: item.naskahId!,
+            perihal: recipient.perihal || '-',
+            email: String(recipient.tertuju || recipient.employeeName || ''),
+            status: result.status,
+            message: result.message,
+          });
+        } catch (error) {
+          const message = String(error?.message || error).slice(0, 300);
+          recipient.internalInboxSendError = message;
+          item.recipientData = JSON.stringify(recipient);
+          await this.repo.save(item);
+          results.push({
+            itemId: item.id,
+            naskahId: item.naskahId!,
+            perihal: recipient.perihal || '-',
+            email: String(recipient.tertuju || recipient.employeeName || ''),
+            status: 'failed',
+            message,
+          });
+        }
+      }
+
+      const allDelivered = results.every(
+        (result) => result.status === 'sent' || result.status === 'skipped',
+      );
+      if (allDelivered) {
+        folder.status = 'TERKIRIM';
+        folder.rejectionReason = null;
+        await this.folderRepo.save(folder);
+        if (folder.parentNaskahId && folder.createdBy) {
+          await this.sirkulasiRepository.update(
+            {
+              idNaskah: folder.parentNaskahId,
+              position: String(folder.createdBy),
+              sirkuler: In(['penerima', 'tembusan']),
+            },
+            { tindakLanjut: 1 },
+          );
+        }
+        await this.notifySdeMasalPositions([folder.createdBy], {
+          title: 'SDE Massal Selesai Dikirim',
+          body: `Folder "${folder.judul || '-'}" berhasil dikirim ke Kotak Masuk karyawan internal.`,
+          action: 'OPEN_SDE_MASAL_FOLDER',
+          folderId: folder.id,
+          status: 'TERKIRIM',
+        });
+      }
+
+      return {
+        deliveryType: 'INTERNAL' as const,
+        folderStatus: allDelivered ? 'TERKIRIM' : 'SIAP_KIRIM',
+        total: results.length,
+        sent: results.filter((result) => result.status === 'sent').length,
+        skipped: results.filter((result) => result.status === 'skipped').length,
+        failed: results.filter((result) => result.status === 'failed').length,
+        results,
+      };
+    }
 
     for (const item of rows) {
       const recipient = this.parseRecipientData(item);
@@ -857,6 +1147,7 @@ export class SdeMasalService {
     }
 
     return {
+      deliveryType: 'EXTERNAL' as const,
       folderStatus: allSent ? 'TERKIRIM' : 'SIAP_KIRIM',
       total: results.length,
       sent: results.filter((result) => result.status === 'sent').length,
@@ -3854,7 +4145,11 @@ export class SdeMasalService {
       totalItems > 0 &&
       rows.every((row) => {
         const recipient = this.parseRecipientData(row);
-        return String(recipient.emailSentAt || '').trim().length > 0;
+        const sentAt =
+          folder.recipientType === 'INTERNAL'
+            ? recipient.internalInboxSentAt
+            : recipient.emailSentAt;
+        return String(sentAt || '').trim().length > 0;
       });
 
     // Penolakan pengirim mengembalikan folder ke konseptor, sementara item
@@ -3959,6 +4254,156 @@ export class SdeMasalService {
       );
       return [];
     }
+  }
+
+  /**
+   * Resolve penerima SDE Massal internal dari direktori org-data. Identitas
+   * selalu dicocokkan tepat terhadap ID karyawan; nama/email tidak pernah
+   * dipakai untuk memilih penerima.
+   */
+  private async resolveInternalRecipients(recipients: any[]): Promise<any[]> {
+    const positions = await this.getLatestOrgPositions();
+    if (positions.length === 0) {
+      throw new BadRequestException(
+        'Direktori karyawan internal tidak tersedia. Coba lagi setelah data organisasi dimuat.',
+      );
+    }
+
+    const normalizeId = (value: unknown) => {
+      let normalized = String(value ?? '').trim().replace(/[\s\u00a0]/g, '');
+      if (/^\d+\.0+$/.test(normalized)) normalized = normalized.replace(/\.0+$/, '');
+      return normalized;
+    };
+    const seenEmployeeIds = new Set<string>();
+
+    return recipients.map((recipient, index) => {
+      const rowNumber = recipient?.no ?? index + 1;
+      const rawId =
+        recipient?.employeeIdInput ??
+        recipient?.employeeId ??
+        recipient?.eNik ??
+        recipient?.e_nik ??
+        recipient?.persnum ??
+        recipient?.variables?.['id karyawan (e-nik/persnum)'] ??
+        '';
+      const inputId = normalizeId(rawId);
+      if (!inputId) {
+        throw new BadRequestException(
+          `Baris ${rowNumber}: ID karyawan kosong. Isi e-NIK atau Persnum.`,
+        );
+      }
+      if (!String(recipient?.perihal ?? '').trim()) {
+        throw new BadRequestException(`Baris ${rowNumber}: Perihal wajib diisi.`);
+      }
+
+      const matches = positions.filter((position: any) =>
+        [
+          position?.persnum_person,
+          position?.persnum,
+          position?.e_nik,
+          position?.enik,
+          position?.eNik,
+        ].some((candidate) => normalizeId(candidate) === inputId),
+      );
+      if (matches.length === 0) {
+        throw new BadRequestException(
+          `Baris ${rowNumber}: ID karyawan "${inputId}" tidak ditemukan di direktori.`,
+        );
+      }
+
+      const employeeIds = new Set(
+        matches
+          .map((position: any) =>
+            normalizeId(
+              position?.persnum_person ??
+                position?.persnum ??
+                position?.e_nik ??
+                position?.enik,
+            ),
+          )
+          .filter(Boolean),
+      );
+      if (employeeIds.size > 1) {
+        throw new BadRequestException(
+          `Baris ${rowNumber}: ID karyawan "${inputId}" cocok ke lebih dari satu karyawan. Periksa master pegawai.`,
+        );
+      }
+
+      const employeeId = [...employeeIds][0] || inputId;
+      if (seenEmployeeIds.has(employeeId)) {
+        throw new BadRequestException(
+          `Baris ${rowNumber}: ID karyawan "${inputId}" duplikat di file.`,
+        );
+      }
+      seenEmployeeIds.add(employeeId);
+
+      // Jika seorang karyawan memiliki lebih dari satu posisi, gunakan posisi
+      // definitif (YBS) yang diprioritaskan oleh sumber direktori. Urutan
+      // snapshot menjadi fallback yang sama dengan endpoint my-position.
+      const position =
+        matches.find(
+          (candidate: any) =>
+            String(candidate?.position_status ?? candidate?.positionStatus ?? '')
+              .trim()
+              .toLowerCase() === 'ybs',
+        ) || matches[0];
+      const employeeName = String(position?.persnum_person_text || '').trim();
+      const positionId = String(position?.position ?? '').trim();
+      const positionText = String(position?.position_text || '').trim();
+      const organizationText = String(position?.organization_text || '').trim();
+      if (!employeeName || !positionId || !positionText || !organizationText) {
+        throw new BadRequestException(
+          `Baris ${rowNumber}: data nama, jabatan, unit kerja, atau posisi karyawan tidak lengkap.`,
+        );
+      }
+
+      const display = `${employeeName} — ${positionText} — ${organizationText}`;
+      const variables = {
+        ...(recipient?.variables && typeof recipient.variables === 'object'
+          ? recipient.variables
+          : {}),
+        tertuju: display,
+        nama: employeeName,
+        jabatan: positionText,
+        unit_kerja: organizationText,
+        id_karyawan: employeeId,
+        persnum: employeeId,
+      };
+      return {
+        ...recipient,
+        recipientType: 'INTERNAL',
+        employeeIdInput: inputId,
+        employeeId,
+        employeePersnum: normalizeId(position?.persnum_person ?? position?.persnum) || employeeId,
+        employeePositionId: positionId,
+        employeeName,
+        employeePositionText: positionText,
+        employeeOrganizationText: organizationText,
+        employeePositionStatus: String(
+          position?.position_status ?? position?.positionStatus ?? 'ybs',
+        ).toLowerCase(),
+        employeeCompanyId: String(position?.company ?? COMPANY_ID),
+        employeeCompanyText: String(
+          position?.company_text ?? position?.companyText ?? 'PERUM LPPNPI',
+        ),
+        employeeAreaId: String(position?.area ?? ''),
+        employeeAreaText: String(position?.area_text ?? ''),
+        employeeSubAreaId: String(position?.sub_area ?? ''),
+        employeeSubAreaText: String(position?.sub_area_text ?? ''),
+        employeeOrganizationId: String(
+          position?.organization_id ?? position?.organization ?? '',
+        ),
+        employeeEmail: position?.email || position?.email_person || null,
+        persnum: normalizeId(position?.persnum_person ?? position?.persnum) || employeeId,
+        nama: employeeName,
+        jabatan: positionText,
+        tertuju: display,
+        idTertuju: '',
+        variables,
+        isValid: true,
+        validationMessage: undefined,
+      };
+    });
   }
 
   /**

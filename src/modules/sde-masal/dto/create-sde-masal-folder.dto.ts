@@ -43,6 +43,10 @@ export class CreateSdeMasalFolderDto {
   sifat?: string;
 
   @IsOptional()
+  @IsIn(['EXTERNAL', 'INTERNAL'])
+  recipientType?: 'EXTERNAL' | 'INTERNAL';
+
+  @IsOptional()
   @IsString()
   atasNama?: string;
 

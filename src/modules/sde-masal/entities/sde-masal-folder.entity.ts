@@ -63,6 +63,14 @@ export class SdeMasalFolderEntity {
   @Column({ type: 'varchar', length: 50, nullable: true })
   sifat: string | null;
 
+  @Column({
+    name: 'recipient_type',
+    type: 'varchar',
+    length: 20,
+    default: 'EXTERNAL',
+  })
+  recipientType: 'EXTERNAL' | 'INTERNAL';
+
   @Column({ name: 'atas_nama', type: 'varchar', length: 150, nullable: true })
   atasNama: string | null;
 
